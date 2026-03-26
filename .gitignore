@@ -206,9 +206,12 @@ marimo/_static/
 marimo/_lsp/
 __marimo__/
 
-# Local sample inputs
-sample_data/
-
 # Local junk
 .DS_Store
 ._*
+
+# Local sample inputs
+sample_data/
+
+# Manuscript
+Manuscript/
