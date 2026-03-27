@@ -8,6 +8,7 @@ import sqlite3
 from pathlib import Path
 
 from tqdm import tqdm
+from contig_info_utils import normalize_record
 
 
 def parse_args() -> argparse.Namespace:
@@ -30,21 +31,6 @@ def parse_args() -> argparse.Namespace:
         help='RVDB release directory to process, for example "v31.0".',
     )
     return parser.parse_args()
-
-
-def normalize_record(columns: list[str], row: tuple[str, ...]) -> tuple[str, dict[str, object]]:
-    record = dict(zip(columns, row, strict=True))
-    accession = record.pop("accs")
-
-    seqlen = record.get("seqlen")
-    if isinstance(seqlen, str):
-        try:
-            record["seqlen"] = int(seqlen)
-        except ValueError:
-            pass
-
-    return accession, record
-
 
 def ensure_db_path(db_path: Path) -> None:
     if db_path.exists():

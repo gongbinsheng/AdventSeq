@@ -2,88 +2,92 @@ import sys
 import os
 import pysam
 import gzip
-import json
-import shutil
-import sqlite3
-import tempfile
 from collections import defaultdict
+from dataclasses import dataclass
 from argparse import ArgumentParser
-from pathlib import Path
-
-#from get_info_from_Entrez import contig_json
+from contig_info_utils import load_contig_info, load_json_mapping
 
 
-def normalize_record(columns, row):
-    record = dict(zip(columns, row, strict=True))
-    accession = record.pop("accs")
-
-    seqlen = record.get("seqlen")
-    if isinstance(seqlen, str):
-        try:
-            record["seqlen"] = int(seqlen)
-        except ValueError:
-            pass
-
-    return accession, record
+@dataclass(frozen=True)
+class VirusGroupAssignment:
+    label: str
+    comparison_key: tuple[str, str]
+    is_fallback: bool
 
 
-def load_contig_info_from_json(contig_info_path):
-    suffixes = contig_info_path.suffixes
-    if suffixes[-2:] == [".json", ".gz"]:
-        with gzip.open(contig_info_path, "rt", encoding="utf-8") as handle:
-            return json.load(handle)
-
-    with contig_info_path.open("r", encoding="utf-8") as handle:
-        return json.load(handle)
-
-
-def load_contig_info_from_sqlite_db(db_path):
-    contig_info = {}
-    with sqlite3.connect(db_path) as connection:
-        cursor = connection.cursor()
-        cursor.execute("SELECT * FROM rvdb")
-        columns = [description[0] for description in cursor.description]
-
-        for row in cursor:
-            accession, record = normalize_record(columns, row)
-            contig_info[accession] = record
-
-    return contig_info
+def get_entrez_id(contig_id):
+    # acc|GENBANK|HM118302.1|HIV-1 isolate BREPM3072_06 from Brazil envelope glycoprotein (env) gene, partial cds|Human immunodeficiency virus 1|VRL|25-JUL-2016
+    # chr1
+    # chr1_KI270706v1_random
+    strs = contig_id.strip().split("|")
+    if len(strs) > 2:
+        return strs[2]
+    else:
+        return strs[0]
 
 
-def load_contig_info_from_sqlite(contig_info_path):
-    suffixes = contig_info_path.suffixes
-    if suffixes[-1:] == [".gz"]:
-        with tempfile.NamedTemporaryFile(suffix=".sqlite.db", delete=False) as tmp_handle:
-            tmp_path = Path(tmp_handle.name)
+def resolve_virus_group(accession, contig_info, taxonomy_map, virus_group_by):
+    record = contig_info[accession]
+    organism = record["organism"]
 
-        try:
-            with gzip.open(contig_info_path, "rb") as source, tmp_path.open("wb") as destination:
-                shutil.copyfileobj(source, destination)
-            return load_contig_info_from_sqlite_db(tmp_path)
-        finally:
-            tmp_path.unlink(missing_ok=True)
+    if virus_group_by == "organism":
+        return VirusGroupAssignment(
+            label=organism,
+            comparison_key=("organism", organism),
+            is_fallback=False,
+        )
 
-    return load_contig_info_from_sqlite_db(contig_info_path)
+    taxonomy_record = taxonomy_map.get(accession, {}) if taxonomy_map else {}
+    selected_label = taxonomy_record.get(virus_group_by)
 
+    if selected_label is not None:
+        selected_label = str(selected_label).strip()
+    if selected_label:
+        return VirusGroupAssignment(
+            label=selected_label,
+            comparison_key=(virus_group_by, selected_label),
+            is_fallback=False,
+        )
 
-def load_contig_info(contig_info_filepath):
-    contig_info_path = Path(contig_info_filepath)
-    suffixes = contig_info_path.suffixes
-
-    if suffixes[-2:] == [".json", ".gz"] or suffixes[-1:] == [".json"]:
-        return load_contig_info_from_json(contig_info_path)
-
-    if suffixes[-3:] == [".sqlite", ".db", ".gz"] or suffixes[-2:] == [".db", ".gz"]:
-        return load_contig_info_from_sqlite(contig_info_path)
-
-    if suffixes[-2:] == [".sqlite", ".db"] or suffixes[-1:] == [".db"]:
-        return load_contig_info_from_sqlite(contig_info_path)
-
-    sys.exit(
-        f"Unsupported file type for {contig_info_filepath}. "
-        "Supported formats: .json, .json.gz, .db, .db.gz, .sqlite.db, .sqlite.db.gz"
+    return VirusGroupAssignment(
+        label=organism,
+        comparison_key=("fallback_organism", organism),
+        is_fallback=True,
     )
+
+
+def write_read_count_report(sample_id, read_count, read_pair_count, virus_count, fallback_virus_count):
+    with open("%s.read_count.txt" % sample_id, "w") as outfile:
+        viruses = sorted(virus_count.keys())
+        fallback_viruses = sorted(fallback_virus_count.keys())
+
+        header = "\t".join((sample_id, "Count Method", "Count Number"))
+        outfile.write(header + "\n")
+        outfile.write(f"#Total\treads\t{read_count['total']}\n"
+                      f"#Total\tpairs\t{read_pair_count['total']}\n"
+                      f"#QC Failed\treads\t{read_count['qcfail']}\n"
+                      f"#Mapped\treads\t{read_count['mapped']}\n"
+                      f"#Mapped\tpairs\t{read_pair_count['mapped']}\n"
+                      f"#Unmapped\treads\t{read_count['unmapped']}\n"
+                      f"#Unmapped\tpairs\t{read_pair_count['unmapped']}\n"
+                      f"#Secondary\treads\t{read_count['secondary']}\n"
+                      f"#Supplementary\treads\t{read_count['supplementary']}\n"
+                      f"#Primary\tpairs\t{read_pair_count['primary']}\n"
+                      f"#Discordant\tpairs\t{read_pair_count['discordant']}\n"
+                      f"#Human\treads\t{read_count['human']}\n"
+                      f"#Human\tpairs\t{read_pair_count['human']}\n"
+                      f"#Virus\treads\t{read_count['viruses']}\n"
+                      f"#Virus\tpairs\t{read_pair_count['viruses']}\n")
+
+        for virus in viruses:
+            outfile.write(f"{virus}\treads\t{virus_count[virus]['read']}\n")
+            outfile.write(f"{virus}\tpairs\t{virus_count[virus]['pair']}\n")
+
+        if fallback_viruses:
+            outfile.write("#Fallback to organism\tCount Method\tCount Number\n")
+            for virus in fallback_viruses:
+                outfile.write(f"{virus}\treads\t{fallback_virus_count[virus]['read']}\n")
+                outfile.write(f"{virus}\tpairs\t{fallback_virus_count[virus]['pair']}\n")
 
 
 def main():
@@ -94,6 +98,11 @@ def main():
                         help='name of the combined genome, used for identify contig json file')
     parser.add_argument('--contig_info', type=str, action='store', dest='contig_info', default=None,
                         required=True, help='contig information in JSON or SQLite format')
+    parser.add_argument('--taxonomy_map', type=str, action='store', dest='taxonomy_map', default=None,
+                        help='accession to NCBI taxonomy mapping in JSON or JSON.gz format')
+    parser.add_argument('--virus_group_by', type=str, action='store', dest='virus_group_by', default='organism',
+                        choices=('organism', 'ncbitaxon', 'ncbitaxonname'),
+                        help='group viral results by organism, NCBI taxonomy ID, or NCBI taxonomy name')
 
     o = parser.parse_args()
 
@@ -102,25 +111,26 @@ def main():
     else:
         sys.exit(f"contig_info file is not provided for {o.combined_genome}")
 
-    contig_info = load_contig_info(contig_json_filepath)
+    try:
+        contig_info = load_contig_info(contig_json_filepath)
+    except ValueError as exc:
+        sys.exit(str(exc))
+
+    if o.virus_group_by == "organism":
+        taxonomy_map = {}
+    else:
+        if not o.taxonomy_map:
+            sys.exit("--taxonomy_map is required when --virus_group_by is ncbitaxon or ncbitaxonname")
+        try:
+            taxonomy_map = load_json_mapping(o.taxonomy_map)
+        except ValueError as exc:
+            sys.exit(str(exc))
 
     sample_id = os.path.splitext(os.path.basename(o.in_sam))[0]
 
     primary_mapped = defaultdict(lambda: {"R1":[], "R2":[]})
     discordant_mapped = defaultdict(lambda: {"R1":[], "R2":[]})
     unmapped = defaultdict(lambda: {"R1":[], "R2":[]})
-
-
-    def get_entrez_id(contig_id):
-        # acc|GENBANK|HM118302.1|HIV-1 isolate BREPM3072_06 from Brazil envelope glycoprotein (env) gene, partial cds|Human immunodeficiency virus 1|VRL|25-JUL-2016
-        # chr1
-        # chr1_KI270706v1_random
-        strs = contig_id.strip().split("|")
-        if len(strs) > 2:
-            return strs[2]
-        else:
-            return strs[0]
-
 
     def write_primary_mapped_read_pairs():
         reads_written = set()
@@ -136,7 +146,16 @@ def main():
                     viruses_bam.write(R1)
                     viruses_bam.write(R2)
                     read_pair_count["viruses"] += 1
-                    virus_count[contig_info[get_entrez_id(R1.reference_name)]['organism']]["pair"] += 1
+                    virus_group = resolve_virus_group(
+                        get_entrez_id(R1.reference_name),
+                        contig_info,
+                        taxonomy_map,
+                        o.virus_group_by,
+                    )
+                    if virus_group.is_fallback:
+                        fallback_virus_count[virus_group.label]["pair"] += 1
+                    else:
+                        virus_count[virus_group.label]["pair"] += 1
                 read_pair_count["primary"] += 1
                 read_pair_count["mapped"] += 1
                 read_pair_count["total"] += 1
@@ -219,6 +238,7 @@ def main():
     read_count = defaultdict(lambda: 0)
     read_pair_count = defaultdict(lambda:0)
     virus_count = defaultdict(lambda:defaultdict(lambda: 0))
+    fallback_virus_count = defaultdict(lambda:defaultdict(lambda: 0))
     with (pysam.AlignmentFile("%s" % o.in_sam) as in_sam,
           pysam.AlignmentFile("%s.human.bam" % sample_id, "wb", header=in_sam.header) as human_bam,
           pysam.AlignmentFile("%s.viruses.bam" % sample_id, "wb", header=in_sam.header) as viruses_bam,
@@ -264,7 +284,16 @@ def main():
                     read_count["human"] += 1
                 else:
                     read_count["viruses"] += 1
-                    virus_count[contig_info[contig_name]['organism']]["read"] += 1
+                    virus_group = resolve_virus_group(
+                        contig_name,
+                        contig_info,
+                        taxonomy_map,
+                        o.virus_group_by,
+                    )
+                    if virus_group.is_fallback:
+                        fallback_virus_count[virus_group.label]["read"] += 1
+                    else:
+                        virus_count[virus_group.label]["read"] += 1
             else:
                 read_count["unmapped"] += 1
 
@@ -315,7 +344,19 @@ def main():
                         discordant_mapped[read.query_name][which_end].append(read)
                 elif (not contig_name.startswith("chr")) and (not next_contig_name.startswith("chr")):
                     #== for viruses
-                    if contig_info[contig_name]['organism'] == contig_info[next_contig_name]['organism']:
+                    virus_group = resolve_virus_group(
+                        contig_name,
+                        contig_info,
+                        taxonomy_map,
+                        o.virus_group_by,
+                    )
+                    next_virus_group = resolve_virus_group(
+                        next_contig_name,
+                        contig_info,
+                        taxonomy_map,
+                        o.virus_group_by,
+                    )
+                    if virus_group.comparison_key == next_virus_group.comparison_key:
                         #== determine if both reads mapped to REO1
                         primary_mapped[read.query_name][which_end].append(read)
                     else:
@@ -345,63 +386,13 @@ def main():
         final_process()
         print_progress()
 
-    with open("%s.read_count.txt" % sample_id, "w") as outfile:
-        viruses = list(virus_count.keys())
-        viruses.sort()
-
-        # header1 = "\t".join(("#Sample",
-        #                      "Total", "Total",
-        #                      "QC Failed",
-        #                      "Mapped", "Mapped", "Unmapped", "Unmapped",
-        #                      "Secondary", "Supplementary",
-        #                      "Primary", "Discordant",
-        #                      "Human", "Human", "Viruses", "Viruses"))
-        # header2 = "\t".join(("#Count Method",
-        #                      "reads", "pairs",
-        #                      "reads",
-        #                      "reads", "pairs", "reads", "pairs",
-        #                      "reads", "reads",
-        #                      "pairs", "pairs",
-        #                      "reads", "pairs", "reads", "pairs"))
-        # header1 = header1 + "\t" + "\t".join([v for v in viruses for _ in range(2)])
-        # header2 = header2 + "\t" + "\t".join(["reads", "pairs"] * len(viruses))
-        # outfile.write(header1 + "\n" + header2 + "\n")
-
-        # outfile.write(f"{sample_id}\t"
-        #               f"{read_count['total']}\t{read_pair_count['total']}\t"
-        #               f"{read_count['qcfail']}\t"
-        #               f"{read_count['mapped']}\t{read_pair_count['mapped']}\t"
-        #               f"{read_count['unmapped']}\t{read_pair_count['unmapped']}\t"
-        #               f"{read_count['secondary']}\t{read_count['supplementary']}\t"
-        #               f"{read_pair_count['primary']}\t{read_pair_count['discordant']}\t"
-        #               f"{read_count['human']}\t{read_pair_count['human']}\t"
-        #               f"{read_count['viruses']}\t{read_pair_count['viruses']}")
-        # for virus in viruses:
-        #     outfile.write(f"\t{virus_count[virus]['read']}\t{virus_count[virus]['pair']}")
-        # outfile.write("\n")
-
-        header = "\t".join((sample_id, "Count Method", "Count Number"))
-        outfile.write(header + "\n")
-        outfile.write(f"#Total\treads\t{read_count['total']}\n"
-                      f"#Total\tpairs\t{read_pair_count['total']}\n"
-                      f"#QC Failed\treads\t{read_count['qcfail']}\n"
-                      f"#Mapped\treads\t{read_count['mapped']}\n"
-                      f"#Mapped\tpairs\t{read_pair_count['mapped']}\n"
-                      f"#Unmapped\treads\t{read_count['unmapped']}\n"
-                      f"#Unmapped\tpairs\t{read_pair_count['unmapped']}\n"
-                      f"#Secondary\treads\t{read_count['secondary']}\n"
-                      f"#Supplementary\treads\t{read_count['supplementary']}\n"
-                      f"#Primary\tpairs\t{read_pair_count['primary']}\n"
-                      f"#Discordant\tpairs\t{read_pair_count['discordant']}\n"
-                      f"#Human\treads\t{read_count['human']}\n"
-                      f"#Human\tpairs\t{read_pair_count['human']}\n"
-                      f"#Virus\treads\t{read_count['viruses']}\n"
-                      f"#Virus\tpairs\t{read_pair_count['viruses']}\n")
-        lines = ""
-        for virus in viruses:
-            lines += f"{virus}\treads\t{virus_count[virus]['read']}\n"
-            lines += f"{virus}\tpairs\t{virus_count[virus]['pair']}\n"
-        outfile.write(lines)
+    write_read_count_report(
+        sample_id,
+        read_count,
+        read_pair_count,
+        virus_count,
+        fallback_virus_count,
+    )
 
 if __name__ == "__main__":
     main()
