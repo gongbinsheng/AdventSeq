@@ -1318,23 +1318,26 @@ class Pipeline:
         self.batch[step_id].extend(batch)
 
 
-    def Kraken2(self, force=False):
+    def Kraken2(self, db_name="standard", kraken2_db_root="/galaxy001/Resources/Kraken2DB", force=False):
         batch = []
         fn_name = inspect.currentframe().f_code.co_name  # get the name of the function
-        step_id = self.__current_step_id + "|" + fn_name
+        step_id = self.__current_step_id + "|" + fn_name + "_" + db_name
         batch.append(f'{"#" * (len(step_id) + 8)}\n')
         batch.append('### %s ###\n' % step_id)
         batch.append(f'{"#" * (len(step_id) + 8)}\n')
         batch.append('conda activate %s\n\n' % self.envs4steps[fn_name])
         self.required_conda_envs.add(self.envs4steps[fn_name])  # add env name to required env list
         # commands
-        batch.append('Kraken2Report="${SID}.Kraken2.report"\n')
+        batch.append(f'Kraken2DB_ROOT="{kraken2_db_root}"\n')
+        batch.append(f'kraken2db="{db_name}"\n')
+        batch.append('Kraken2Report="${SID}.Kraken2_${kraken2db}.report"\n')
+        batch.append('if [ ! -d "${Kraken2DB_ROOT}/${kraken2db}" ]; then echo "Error: %s not exists."; exit 1; fi\n\n' % db_name)
         batch.append('kraken2 \\\n')
-        batch.append('    --db /galaxy001/Resources/Kraken2DB \\\n')
+        batch.append('    --db "${Kraken2DB_ROOT}/${kraken2db}" \\\n')
         batch.append('    --threads %d \\\n' % self.threadN)
-        batch.append('    --unclassified-out "${SID}.Kraken2.unclassified#.fastq" \\\n')
-        batch.append('    --classified-out "${SID}.Kraken2.classified#.fastq" \\\n')
-        batch.append('    --output "${SID}.Kraken2.out" \\\n')
+        batch.append('    --unclassified-out "${SID}.Kraken2_${kraken2db}.unclassified#.fastq" \\\n')
+        batch.append('    --classified-out "${SID}.Kraken2_${kraken2db}.classified#.fastq" \\\n')
+        batch.append('    --output "${SID}.Kraken2_${kraken2db}.out" \\\n')
         batch.append('    --report "${Kraken2Report}" \\\n')
         batch.append('    --paired \\\n')
         batch.append('    --use-names \\\n')
@@ -1344,7 +1347,7 @@ class Pipeline:
         batch.append('if [ $? -ne 0 ]; then echo "Error: %s failed."; exit 1; fi\n\n' % step_id)
         batch.append('echo -e "%s\\t$(date +\'%%Y-%%m-%%d %%H:%%M:%%S\')" >> "$my_progress"\n\n' % step_id)
         batch.append('find . -name "*.fastq" -exec gzip {} \\;\n')
-        batch.append('gzip "${SID}.Kraken2.out"\n')
+        batch.append('gzip "${SID}.Kraken2_${kraken2db}.out"\n')
         batch.append('conda deactivate\n\n\n')
         # test if this step has already been completed
         # this is an endpoint, no need to set current step id
