@@ -1331,7 +1331,7 @@ class Pipeline:
         batch.append(f'Kraken2DB_ROOT="{kraken2_db_root}"\n')
         batch.append(f'kraken2db="{db_name}"\n')
         batch.append('Kraken2Report="${SID}.Kraken2_${kraken2db}.report"\n')
-        batch.append('if [ ! -d "${Kraken2DB_ROOT}/${kraken2db}" ]; then echo "Error: %s not exists."; exit 1; fi\n\n' % db_name)
+        batch.append('if [ ! -d "${Kraken2DB_ROOT}/${kraken2db}" ]; then echo "Error: kraken2db (%s) not exists."; exit 1; fi\n\n' % db_name)
         batch.append('kraken2 \\\n')
         batch.append('    --db "${Kraken2DB_ROOT}/${kraken2db}" \\\n')
         batch.append('    --threads %d \\\n' % self.threadN)
