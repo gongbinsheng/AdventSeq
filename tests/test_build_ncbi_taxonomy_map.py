@@ -29,7 +29,7 @@ class BuildNcbiTaxonomyMapTests(unittest.TestCase):
             "--email",
             "Binsheng.Gong@fda.hhs.gov",
         ])
-        self.assertEqual(args.out, Path("cbi_taxonomy_map.json.gz"))
+        self.assertEqual(args.out, Path("ncbi_taxonomy_map.json.gz"))
 
     def test_email_argument_is_required(self):
         with contextlib.redirect_stderr(io.StringIO()):

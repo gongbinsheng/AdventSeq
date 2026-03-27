@@ -1,0 +1,125 @@
+# build_ncbi_taxonomy_map.py
+
+Builds a gzipped JSON mapping from accession to NCBI taxonomy ID, NCBI taxonomy name, and the original organism label from `contig_info`.
+
+## Purpose
+
+`build_ncbi_taxonomy_map.py` reads the same contig metadata used by `taxonomic_classifier.py`, extracts accession IDs, queries NCBI Entrez E-utilities, and writes an accession-keyed taxonomy mapping file that can be consumed by `taxonomic_classifier.py --taxonomy_map`.
+
+The output is designed to support taxonomy-based grouping modes in the classifier while preserving the original `organism` field for fallback reporting.
+
+## Workflow and data flow
+
+```mermaid
+flowchart TD
+    A["Read --contig_info<br/>JSON / JSON.gz / SQLite / SQLite.gz"] --> B["Build accession -> contig metadata dict"]
+    B --> C["Collect accession IDs"]
+    C --> D["Batch query NCBI nuccore summary<br/>using --email"]
+    D --> E["Extract accession -> TaxId"]
+    E --> F["Collect unique TaxIds"]
+    F --> G["Query NCBI taxonomy records"]
+    G --> H["Resolve TaxId -> ScientificName"]
+    B --> I["Combine taxonomy results with original organism"]
+    E --> I
+    H --> I
+    I --> J["Write --out as JSON.gz"]
+```
+
+## Command line arguments
+
+- `--contig_info`
+  Required contig metadata source. Supported formats are:
+  - `.json`
+  - `.json.gz`
+  - `.db`
+  - `.db.gz`
+  - `.sqlite.db`
+  - `.sqlite.db.gz`
+- `--email`
+  Required email address passed to NCBI E-utilities.
+- `--out`
+  Optional gzipped JSON output path. Defaults to `ncbi_taxonomy_map.json.gz`.
+
+Example:
+
+```bash
+uv run python build_ncbi_taxonomy_map.py \
+  --contig_info sample_data/contig_info.json.gz \
+  --email Binsheng.Gong@fda.hhs.gov \
+  --out sample_data/ncbi_taxonomy_map.json.gz
+```
+
+## `contig_info` input format
+
+The script reads `--contig_info` into memory as a dictionary keyed by accession.
+
+For JSON input, the expected shape is:
+
+```json
+{
+  "HM118273.1": {
+    "source": "GENBANK",
+    "description": "HIV-1 isolate ...",
+    "seqlen": 309,
+    "organism": "Human immunodeficiency virus 1"
+  }
+}
+```
+
+For SQLite input, the script expects an RVDB-style database with a table named `rvdb` and a column named `accs`.
+
+## Output format
+
+The output file is a JSON object keyed by accession:
+
+```json
+{
+  "HM118273.1": {
+    "ncbitaxon": "11676",
+    "ncbitaxonname": "Human immunodeficiency virus 1",
+    "organism": "Human immunodeficiency virus 1"
+  }
+}
+```
+
+Field meanings:
+
+- `ncbitaxon`
+  The NCBI taxonomy ID returned for the accession, stored as a string.
+- `ncbitaxonname`
+  The current scientific name returned from the NCBI taxonomy record for that taxonomy ID.
+- `organism`
+  The original `organism` value from `contig_info`, preserved for fallback behavior in downstream tools.
+
+## NCBI lookup behavior
+
+- Accessions are queried in batches against NCBI `nuccore` using `esummary.fcgi`.
+- Taxonomy IDs returned from `nuccore` are then resolved to current scientific names using NCBI `taxonomy` via `efetch.fcgi`.
+- The script matches returned accessions to the requested keys, including accession-version variants where needed.
+
+## Missing data behavior
+
+- If NCBI returns no taxonomy ID for an accession, the script still writes that accession to the output.
+- In unresolved cases:
+  - `ncbitaxon` is written as `null`
+  - `ncbitaxonname` is written as `null`
+  - `organism` is still copied from `contig_info`
+
+This allows `taxonomic_classifier.py` to fall back to `organism` while keeping those fallback counts separate from true taxonomy-resolved groups.
+
+## Runtime behavior and assumptions
+
+- The full `contig_info` dataset is loaded into memory before NCBI queries begin.
+- The script uses batch size `200` internally for NCBI requests.
+- The script prints the output path on success.
+- The script currently requires network access to reach NCBI E-utilities.
+- This project uses `uv` for Python commands. Run the script with `uv run python ...`.
+
+## Related files
+
+- `taxonomic_classifier.py`
+  Consumes the generated mapping via `--taxonomy_map`.
+- `taxonomic_classifier.md`
+  Documents the classifier’s taxonomy-based grouping and fallback reporting.
+- `convert_rvdb_to_json.py`
+  Converts RVDB SQLite input to a gzipped JSON contig metadata file.

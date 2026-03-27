@@ -35,9 +35,9 @@ def parse_args(argv=None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--out",
-        default=Path("cbi_taxonomy_map.json.gz"),
+        default=Path("ncbi_taxonomy_map.json.gz"),
         type=Path,
-        help="Output gzipped JSON file. Defaults to cbi_taxonomy_map.json.gz.",
+        help="Output gzipped JSON file. Defaults to ncbi_taxonomy_map.json.gz.",
     )
     return parser.parse_args(argv)
 

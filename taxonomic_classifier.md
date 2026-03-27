@@ -84,7 +84,7 @@ uv run python taxonomic_classifier.py \
   --bam sample.bam \
   --combined_genome combined_genome_name \
   --contig_info sample_data/contig_info.json.gz \
-  --taxonomy_map sample_data/cbi_taxonomy_map.json.gz \
+  --taxonomy_map sample_data/ncbi_taxonomy_map.json.gz \
   --virus_group_by ncbitaxonname
 ```
 
@@ -204,7 +204,7 @@ The `*.read_count.txt` report is tab-delimited and includes:
 `build_ncbi_taxonomy_map.py`
 
 - Reads `--contig_info`, queries NCBI using `--email`, and writes `--out` as a gzipped JSON accession-to-taxonomy map.
-- `--out` defaults to `cbi_taxonomy_map.json.gz`.
+- `--out` defaults to `ncbi_taxonomy_map.json.gz`.
 
 Example:
 
@@ -212,7 +212,7 @@ Example:
 uv run python build_ncbi_taxonomy_map.py \
   --contig_info sample_data/contig_info.json.gz \
   --email Binsheng.Gong@fda.hhs.gov \
-  --out sample_data/cbi_taxonomy_map.json.gz
+  --out sample_data/ncbi_taxonomy_map.json.gz
 ```
 
 ## Notes
