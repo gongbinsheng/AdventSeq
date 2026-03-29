@@ -1223,7 +1223,7 @@ class Pipeline:
         self.batch[step_id].extend(batch)
 
 
-    def taxomomic_classifier(self, contig_info, force=False):
+    def taxomomic_classifier(self, contig_info, taxonomy_map=None, virus_group_by=None,force=False):
         batch = []
         fn_name = inspect.currentframe().f_code.co_name  # get the name of the function
         step_id = self.__current_step_id + "|" + fn_name
@@ -1236,6 +1236,10 @@ class Pipeline:
         batch.append('python /account001/bgong/workspace/AdVentSeq/taxonomic_classifier.py \\\n')
         batch.append('    --bam "${BAM}" \\\n')
         batch.append('    --combined_genome %s\\\n' % self.ref_genome)
+        if taxonomy_map:
+            batch.append('     --taxonomy_map "%s"\\\n' % taxonomy_map)
+        if virus_group_by:
+            batch.append('     --virus_group_by "%s"\\\n' % virus_group_by)
         batch.append('     --contig_info "%s"\n' % contig_info)
         # check if commands were completed successfully
         batch.append('if [ $? -ne 0 ]; then echo "Error: %s failed."; exit 1; fi\n\n' % step_id)
