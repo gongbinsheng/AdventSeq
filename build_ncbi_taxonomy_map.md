@@ -39,6 +39,8 @@ flowchart TD
   Required email address passed to NCBI E-utilities.
 - `--out`
   Optional gzipped JSON output path. Defaults to `ncbi_taxonomy_map.json.gz`.
+- `--retry`
+  Optional retry count for each failed NCBI request. Defaults to `3`.
 
 Example:
 
@@ -46,6 +48,7 @@ Example:
 uv run python build_ncbi_taxonomy_map.py \
   --contig_info sample_data/contig_info.json.gz \
   --email Binsheng.Gong@fda.hhs.gov \
+  --retry 3 \
   --out sample_data/ncbi_taxonomy_map.json.gz
 ```
 
@@ -96,6 +99,17 @@ Field meanings:
 - Accessions are queried in batches against NCBI `nuccore` using `esummary.fcgi`.
 - Taxonomy IDs returned from `nuccore` are then resolved to current scientific names using NCBI `taxonomy` via `efetch.fcgi`.
 - The script matches returned accessions to the requested keys, including accession-version variants where needed.
+- Each network request is retried up to `--retry` times before the script exits with an error.
+- Both the `nuccore` phase and the taxonomy phase display progress bars.
+
+## Cache and resume behavior
+
+- The script writes successful batch results into a cache directory derived from `--out`.
+  For example, `ncbi_taxonomy_map.json.gz` uses a sibling cache folder named `ncbi_taxonomy_map.cache`.
+- `nuccore` and taxonomy batch results are cached separately.
+- Cached batches are reused on rerun, so if the script stops partway through a large job it can resume from the completed batches instead of re-querying everything.
+- Only successful batch results are cached.
+- The cache directory is deleted automatically after a successful completed run.
 
 ## Missing data behavior
 
@@ -113,6 +127,7 @@ This allows `taxonomic_classifier.py` to fall back to `organism` while keeping t
 - The script uses batch size `200` internally for NCBI requests.
 - The script prints the output path on success.
 - The script currently requires network access to reach NCBI E-utilities.
+- If the run fails, the cache directory is left in place so the next run can resume from completed batches.
 - This project uses `uv` for Python commands. Run the script with `uv run python ...`.
 
 ## Related files

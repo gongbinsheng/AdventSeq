@@ -215,3 +215,7 @@ sample_data/
 
 # Manuscript
 Manuscript/
+
+# Tests
+tests/
+test*
