@@ -1235,12 +1235,12 @@ class Pipeline:
         # commands
         batch.append('python /account001/bgong/workspace/AdVentSeq/taxonomic_classifier.py \\\n')
         batch.append('    --bam "${BAM}" \\\n')
-        batch.append('    --combined_genome %s\\\n' % self.ref_genome)
+        batch.append('    --combined_genome %s \\\n' % self.ref_genome)
         if taxonomy_map:
-            batch.append('     --taxonomy_map "%s"\\\n' % taxonomy_map)
+            batch.append('    --taxonomy_map "%s" \\\n' % taxonomy_map)
         if virus_group_by:
-            batch.append('     --virus_group_by "%s"\\\n' % virus_group_by)
-        batch.append('     --contig_info "%s"\n' % contig_info)
+            batch.append('    --virus_group_by "%s" \\\n' % virus_group_by)
+        batch.append('    --contig_info "%s"\n' % contig_info)
         # check if commands were completed successfully
         batch.append('if [ $? -ne 0 ]; then echo "Error: %s failed."; exit 1; fi\n\n' % step_id)
         batch.append('echo -e "%s\\t$(date +\'%%Y-%%m-%%d %%H:%%M:%%S\')" >> "$my_progress"\n\n' % step_id)
