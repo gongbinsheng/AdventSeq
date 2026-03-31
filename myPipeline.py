@@ -1097,8 +1097,7 @@ class Pipeline:
         elif self.library_layout.lower() == "paired":
             batch.append('    -1 "$FASTQ_R1" \\\n')
             batch.append('    -2 "$FASTQ_R2" \\\n')
-        batch.append('    -S "${SAM}" \\\n')
-        batch.append('\n\n')
+        batch.append('    -S "${SAM}"\n\n')
         # check if commands were completed successfully
         batch.append('if [ $? -ne 0 ]; then echo "Error: %s failed."; exit 1; fi\n' % step_id)
         batch.append(
@@ -1177,7 +1176,7 @@ class Pipeline:
         batch.append('    --outSAMattrRGline "ID:$SID\\tSM:$SID\\tLB:$SID\\tPL:%s" \\\n' % (self.platform,))
         batch.append('    --outSAMtype SAM \\\n')
         batch.append('    --outSAMunmapped Within KeepPairs \\\n')
-        batch.append('    --outReadsUnmapped None\n')
+        batch.append('    --outReadsUnmapped None\n\n')
         # check if commands were completed successfully
         batch.append('if [ $? -ne 0 ]; then echo "Error: %s failed."; exit 1; fi\n' % step_id)
         batch.append('mv "${STAR_outFileNamePrefix}.Aligned.out.sam" "${SAM}"\n')
