@@ -132,8 +132,7 @@ class Pipeline:
                   "BAM2BigWig":"deepTools",
                   "SPAdes":"SPAdes",
                   "taxomomic_classifier":"AdVentSeq",
-                  "taxomomic_classifier2":"samtools",
-                  "ViraQuant":"samtools",
+                  "ViraQuant":"AdVentSeq",
                   "GATK4_Mutect2":"gatk"}
 
     def add_nodes_to_be_skipped(self,more_nodes_to_be_skipped):
@@ -1190,31 +1189,6 @@ class Pipeline:
         batch.append('conda deactivate\n\n\n')
         # test if this step has already been completed
         self.set_current_step_id(step_id) # mapping is a critical step, set current step id
-        if step_id in self.progress and not force:
-            batch = self.__comment_lines(batch)
-        else:
-            self.is_completed = False
-        self.batch[step_id].extend(batch)
-
-
-    def taxomomic_classifier_select(self, force=False):
-        batch = []
-        fn_name = inspect.currentframe().f_code.co_name  # get the name of the function
-        step_id = self.__current_step_id + "|" + fn_name
-        batch.append(f'{"#" * (len(step_id) + 8)}\n')
-        batch.append('### %s ###\n' % step_id)
-        batch.append(f'{"#" * (len(step_id) + 8)}\n')
-        batch.append('conda activate %s\n\n' % self.envs4steps[fn_name])
-        self.required_conda_envs.add(self.envs4steps[fn_name])  # add env name to required env list
-        # commands
-        batch.append('python /galaxy001/bgong/Project_DeLab/scripts/taxonomic_classifier_select.py \\\n')
-        batch.append('    --bam "${BAM}"\n')
-        # check if commands were completed successfully
-        batch.append('if [ $? -ne 0 ]; then echo "Error: %s failed."; exit 1; fi\n\n' % step_id)
-        batch.append('echo -e "%s\\t$(date +\'%%Y-%%m-%%d %%H:%%M:%%S\')" >> "$my_progress"\n\n' % step_id)
-        batch.append('conda deactivate\n\n\n')
-        # test if this step has already been completed
-        # this is an endpoint, no need to set current step id
         if step_id in self.progress and not force:
             batch = self.__comment_lines(batch)
         else:
