@@ -1672,7 +1672,7 @@ class Pipeline:
         batch.append('conda activate %s\n\n' % self.envs4steps[fn_name])
         self.required_conda_envs.add(self.envs4steps[fn_name])  # add env name to required env list
         # commands
-        batch.append('python /galaxy001/bgong/Project_DeLab/scripts/ViraQuant.py \\\n')
+        batch.append('python /account001/bgong/workspace/AdVentSeq/ViraQuant.py \\\n')
         batch.append('    --bam "${sorted_BAM}" \\\n')
         if virus_list is not None:
             batch.append(f'    --viruses "{virus_list}" \\\n')
