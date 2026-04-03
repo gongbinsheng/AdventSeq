@@ -1661,7 +1661,7 @@ class Pipeline:
         batch.append('echo -e "%s\\t$(date +\'%%Y-%%m-%%d %%H:%%M:%%S\')" >> "$my_progress"\n\n' % step_id)
         batch.append('conda deactivate\n\n\n')
         # test if this step has already been completed
-        self.set_current_step_id(step_id)
+        # this is an endpoint, no need to set current step id
         if step_id in self.progress and not force:
             batch = self.__comment_lines(batch)
         else:
