@@ -1573,7 +1573,7 @@ class Pipeline:
             self.is_completed = False
         self.batch[step_id].extend(batch)
 
-    def GATK4_Mutect2(self, ref_genome=None, genome_fasta=None, mode="DNA", no_filter=False, force=False):
+    def GATK4_Mutect2(self, ref_genome=None, genome_fasta=None, mode="DNA", no_filter=False, split_multi_allelic=False,force=False):
         batch = []
         fn_name = inspect.currentframe().f_code.co_name  # get the name of the function
         self.caller = "GATK4_Mutect2"
@@ -1618,6 +1618,8 @@ class Pipeline:
         batch.append('gatk VariantsToTable \\\n')
         batch.append('    -V "${VCF%.*}.filtered.vcf" \\\n')
         batch.append('    -F CHROM -F POS -F REF -F ALT -F FILTER -F DP -GF DP -GF AF \\\n')
+        if split_multi_allelic:
+            batch.append('    --split-multi-allelic \\\n')
         if no_filter:
             batch.append('    --show-filtered \\\n')
             batch.append('    -O "${VCF%.*}.nofilter.tsv"\n')
