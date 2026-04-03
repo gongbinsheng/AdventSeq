@@ -1641,7 +1641,7 @@ class Pipeline:
         fn_name = inspect.currentframe().f_code.co_name  # get the name of the function
         step_id = self.__current_step_id + "|" + fn_name
         if not virus_list:
-            step_id = step_id + f"_{top_n}"
+            step_id = step_id + f"_top{top_n}"
         batch.append(f'{"#" * (len(step_id) + 8)}\n')
         batch.append('### %s ###\n' % step_id)
         batch.append(f'{"#" * (len(step_id) + 8)}\n')
@@ -1654,7 +1654,7 @@ class Pipeline:
             batch.append(f'    --viruses "{virus_list}" \\\n')
             batch.append('    --out "${sorted_BAM%.*.*}.ViraQuant.tsv"\n')
         else:
-            batch.append(f'    --top-n "{top_n}" \\\n')
+            batch.append(f'    --top-n {top_n} \\\n')
             batch.append(f'    --out "${{sorted_BAM%.*.*}}.ViraQuant_top{top_n}.tsv"\n')
         # check if commands were completed successfully
         batch.append('if [ $? -ne 0 ]; then echo "Error: %s failed."; exit 1; fi\n\n' % step_id)
