@@ -219,3 +219,4 @@ Manuscript/
 # Tests
 tests/
 test*
+.Rproj.user

@@ -1636,7 +1636,7 @@ class Pipeline:
         self.batch[step_id].extend(batch)
 
 
-    def ViraQuant(self, virus_list=None, force=False):
+    def ViraQuant(self, virus_list=None, top_n=10, force=False):
         batch = []
         fn_name = inspect.currentframe().f_code.co_name  # get the name of the function
         step_id = self.__current_step_id + "|" + fn_name
@@ -1650,7 +1650,10 @@ class Pipeline:
         batch.append('    --bam "${sorted_BAM}" \\\n')
         if virus_list is not None:
             batch.append(f'    --viruses "{virus_list}" \\\n')
-        batch.append('    --out "${sorted_BAM%.*.*}.ViraQuant.tsv"\n')
+            batch.append('    --out "${sorted_BAM%.*.*}.ViraQuant.tsv"\n')
+        else:
+            batch.append(f'    --top-n "{top_n}" \\\n')
+            batch.append(f'    --out "${{sorted_BAM%.*.*}}.ViraQuant_top{top_n}.tsv"\n')
         # check if commands were completed successfully
         batch.append('if [ $? -ne 0 ]; then echo "Error: %s failed."; exit 1; fi\n\n' % step_id)
         batch.append('echo -e "%s\\t$(date +\'%%Y-%%m-%%d %%H:%%M:%%S\')" >> "$my_progress"\n\n' % step_id)
