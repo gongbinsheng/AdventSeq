@@ -130,7 +130,7 @@ class Pipeline:
                   "featureCounts":"Subread",
                   "depth_by_pos":"samtools",
                   "BAM2BigWig":"deepTools",
-                  "__get_FASTQ_for_proper_pairs":"samtools",
+                  "BAM_to_proper_paired_FASTQ_of_a_contig":"samtools",
                   "SPAdes":"SPAdes",
                   "taxomomic_classifier":"AdVentSeq",
                   "ViraQuant":"AdVentSeq",
@@ -1538,13 +1538,15 @@ class Pipeline:
         self.batch[step_id].extend(batch)
 
 
-    def __get_FASTQ_for_proper_pairs(self, step_id, contig, contig_name):
+    def BAM_to_proper_paired_FASTQ_of_a_contig(self, contig, contig_name, force=False):
         batch = []
+        if not contig_name:
+            contig_name = str(contig)
         fn_name = inspect.currentframe().f_code.co_name  # get the name of the function
-        # step_id = self.__current_step_id + "|" + fn_name + f"{contig}"
-        # batch.append(f'{"#" * (len(step_id) + 8)}\n')
-        # batch.append('### %s ###\n' % step_id)
-        # batch.append(f'{"#" * (len(step_id) + 8)}\n')
+        step_id = self.__current_step_id + "|" + fn_name + f"{contig_name}"
+        batch.append(f'{"#" * (len(step_id) + 8)}\n')
+        batch.append('### %s ###\n' % step_id)
+        batch.append(f'{"#" * (len(step_id) + 8)}\n')
         batch.append('conda activate %s\n\n' % self.envs4steps[fn_name])
         self.required_conda_envs.add(self.envs4steps[fn_name])  # add env name to required env list
         # commands
@@ -1564,13 +1566,13 @@ class Pipeline:
         batch.append('    -0 /dev/null \\\n')
         batch.append('    -s /dev/null \\\n')
         batch.append('    -n -\n')
-        # check if commands were completed successfully
-        batch.append('if [ $? -ne 0 ]; then echo "Error: %s - prepare FASTQ failed."; exit 1; fi\n\n' % step_id)
-        batch.append('echo -e "%s\\t$(date +\'%%Y-%%m-%%d %%H:%%M:%%S\')" >> "$my_progress"\n\n' % step_id)
-        batch.append('conda deactivate\n\n\n')
-        # this internal function is called by another function
-        # just return the batch and let the calling function to determine the completeness
-        return batch
+        # test if this step has already been completed
+        self.set_current_step_id(step_id) # this step set SID and FASTQ_R1/2, must set current step id
+        if step_id in self.progress and not force:
+            batch = self.__comment_lines(batch)
+        else:
+            self.is_completed = False
+        self.batch[step_id].extend(batch)
 
 
     def SPAdes(self, contig, is_RNA_seq=True, mode="rnaviral", contig_name=None, force=False):
@@ -1582,15 +1584,13 @@ class Pipeline:
         batch.append(f'{"#" * (len(step_id) + 8)}\n')
         batch.append('### %s ###\n' % step_id)
         batch.append(f'{"#" * (len(step_id) + 8)}\n')
-        # get paired FASTQ files for the contig
-        batch.extend(self.__get_FASTQ_for_proper_pairs(step_id=step_id, contig=contig, contig_name=contig_name))
         # SPAdes
         batch.append('conda activate %s\n\n' % self.envs4steps[fn_name])
         self.required_conda_envs.add(self.envs4steps[fn_name]) # add env name to required env list
         # PE
         batch.append(f'SPAdes_Output="SPAdes/{contig_name}/${mode}"\n')
         batch.append('[ -d "${SPAdes_Output}" ] && rm -fr "${SPAdes_Output}"\n')
-        batch.append('mkdir -p "${SPAdes_Output}""\n')
+        batch.append('mkdir -p "${SPAdes_Output}"\n')
         batch.append('spades.py \\\n')
         batch.append('    -o "${SPAdes_Output}" \\\n')
         if mode == "rnaviral":
