@@ -130,7 +130,7 @@ class Pipeline:
                   "featureCounts":"Subread",
                   "depth_by_pos":"samtools",
                   "BAM2BigWig":"deepTools",
-                  "get_FASTQ_for_proper_pairs":"samtools",
+                  "__get_FASTQ_for_proper_pairs":"samtools",
                   "SPAdes":"SPAdes",
                   "taxomomic_classifier":"AdVentSeq",
                   "ViraQuant":"AdVentSeq",
