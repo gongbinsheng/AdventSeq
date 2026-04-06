@@ -1577,8 +1577,10 @@ class Pipeline:
         batch = []
         if not contig_name:
             contig_name = str(contig)
+        if mode != "rnaviral":
+            mode = "general"
         fn_name = inspect.currentframe().f_code.co_name  # get the name of the function
-        step_id = self.__current_step_id + "|" + fn_name + f"[{contig_name}]"
+        step_id = self.__current_step_id + "|" + fn_name + f"[{contig_name}]_{mode}"
         batch.append(f'{"#" * (len(step_id) + 8)}\n')
         batch.append('### %s ###\n' % step_id)
         batch.append(f'{"#" * (len(step_id) + 8)}\n')
@@ -1588,10 +1590,11 @@ class Pipeline:
         batch.append('conda activate %s\n\n' % self.envs4steps[fn_name])
         self.required_conda_envs.add(self.envs4steps[fn_name]) # add env name to required env list
         # PE
-        batch.append(f'[ -d "SPAdes/{contig_name}" ] && rm -fr "SPAdes/{contig_name}"\n')
-        batch.append(f'mkdir -p "SPAdes/{contig_name}"\n')
+        batch.append(f'SPAdes_Output="SPAdes/{contig_name}/${mode}"\n')
+        batch.append('[ -d "${SPAdes_Output}" ] && rm -fr "${SPAdes_Output}"\n')
+        batch.append('mkdir -p "${SPAdes_Output}""\n')
         batch.append('spades.py \\\n')
-        batch.append(f'    -o "SPAdes/{contig_name}" \\\n')
+        batch.append('    -o "${SPAdes_Output}" \\\n')
         if mode == "rnaviral":
             batch.append('    --rnaviral \\\n')
         else:
@@ -1612,6 +1615,7 @@ class Pipeline:
         else:
             self.is_completed = False
         self.batch[step_id].extend(batch)
+
 
     def GATK4_Mutect2(self, ref_genome=None, genome_fasta=None, mode="DNA", no_filter=False, split_multi_allelic=False,force=False):
         batch = []
