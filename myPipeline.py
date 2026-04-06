@@ -1548,9 +1548,9 @@ class Pipeline:
         batch.append('conda activate %s\n\n' % self.envs4steps[fn_name])
         self.required_conda_envs.add(self.envs4steps[fn_name])  # add env name to required env list
         # commands
-        batch.append(f'FASTQ_CONTIG_R1="${{sorted_BAM%.*.*}}_{contig_name}.R1.fastq.gz"\n')
-        batch.append(f'FASTQ_CONTIG_R2="${{sorted_BAM%.*.*}}_{contig_name}.R2.fastq.gz"\n')
-        #batch.append(f'BAM_CONTIG="${{sorted_BAM%.*.*}}_{contig_name}.bam"\n')
+        batch.append(f'FASTQ_CONTIG_R1="${{sorted_BAM%.*.*}}.{contig_name}.R1.fastq.gz"\n')
+        batch.append(f'FASTQ_CONTIG_R2="${{sorted_BAM%.*.*}}.{contig_name}.R2.fastq.gz"\n')
+        #batch.append(f'BAM_CONTIG="${{sorted_BAM%.*.*}}.{contig_name}.bam"\n')
         batch.append('samtools view \\\n')
         batch.append('    -b \\\n')
         batch.append('    -f 3 \\\n') # include: paired (1) + porper pair (2)
