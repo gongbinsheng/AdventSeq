@@ -130,6 +130,7 @@ class Pipeline:
                   "featureCounts":"Subread",
                   "depth_by_pos":"samtools",
                   "BAM2BigWig":"deepTools",
+                  "get_FASTQ_for_proper_pairs":"samtools",
                   "SPAdes":"SPAdes",
                   "taxomomic_classifier":"AdVentSeq",
                   "ViraQuant":"AdVentSeq",
@@ -156,7 +157,7 @@ class Pipeline:
 
         self.ref_genome = ref_genome
         if ref_genome not in self.species: # hg19, hg38, rn6, chlSab2, zikv, denv3
-            sys.stdout.write(f"Reference genome [ref_genome] is not in the list. Please specify the path.\n")
+            sys.stdout.write(f"Reference genome [{ref_genome}] is not in the list. Please specify the path.\n")
 
         self.ref_type = ref_type # genome, transcriptome
         self.feature = feature # transcript, exon, CDS
@@ -1537,32 +1538,71 @@ class Pipeline:
         self.batch[step_id].extend(batch)
 
 
-    def SPAdes(self):
+    def __get_FASTQ_for_proper_pairs(self, step_id, contig, contig_name, force=False):
         batch = []
         fn_name = inspect.currentframe().f_code.co_name  # get the name of the function
-        step_id = self.__current_step_id + "|" + fn_name
+        # step_id = self.__current_step_id + "|" + fn_name + f"{contig}"
+        # batch.append(f'{"#" * (len(step_id) + 8)}\n')
+        # batch.append('### %s ###\n' % step_id)
+        # batch.append(f'{"#" * (len(step_id) + 8)}\n')
+        batch.append('conda activate %s\n\n' % self.envs4steps[fn_name])
+        self.required_conda_envs.add(self.envs4steps[fn_name])  # add env name to required env list
+        # commands
+        batch.append(f'FASTQ_CONTIG_R1="${{sorted_BAM%.*.*}}_{contig_name}.R1.fastq.gz"\n')
+        batch.append(f'FASTQ_CONTIG_R2="${{sorted_BAM%.*.*}}_{contig_name}.R2.fastq.gz"\n')
+        #batch.append(f'BAM_CONTIG="${{sorted_BAM%.*.*}}_{contig_name}.bam"\n')
+        batch.append('samtools view \\\n')
+        batch.append('    -b \\\n')
+        batch.append('    -f 3 \\\n') # include: paired (1) + porper pair (2)
+        batch.append('    -F 3852 \\\n') # remove: read unmapped (4) + mate unmapped (8) + secondary (256) + QC failed (512) + PCR duplicates (1024) +  supplementary (2048)
+        batch.append('    ${sorted_BAM} \\\n')
+        batch.append(f'    {contig} | \\\n')
+        batch.append('samtools collate -O -u - | \\\n') # -O Output to stdout, -u uncompressed
+        batch.append('samtools fastq \\\n')
+        batch.append('    -1 ${FASTQ_CONTIG_R1} \\\n')
+        batch.append('    -2 ${FASTQ_CONTIG_R2} \\\n')
+        batch.append('    -0 /dev/null \\\n')
+        batch.append('    -s /dev/null \\\n')
+        batch.append('    -n -\n')
+        # check if commands were completed successfully
+        batch.append('if [ $? -ne 0 ]; then echo "Error: %s failed."; exit 1; fi\n\n' % step_id)
+        batch.append('echo -e "%s\\t$(date +\'%%Y-%%m-%%d %%H:%%M:%%S\')" >> "$my_progress"\n\n' % step_id)
+        batch.append('conda deactivate\n\n\n')
+        # this internal function is called by another function
+        # just return the batch and let the calling function to determine the completeness
+        return batch
+
+
+    def SPAdes(self, contig, is_RNA_seq=True, mode="rnaviral", contig_name=None):
+        batch = []
+        if not contig_name:
+            contig_name = str(contig)
+        fn_name = inspect.currentframe().f_code.co_name  # get the name of the function
+        step_id = self.__current_step_id + "|" + fn_name + f"[{contig_name}]"
         batch.append(f'{"#" * (len(step_id) + 8)}\n')
         batch.append('### %s ###\n' % step_id)
         batch.append(f'{"#" * (len(step_id) + 8)}\n')
+        # get paired FASTQ files for the contig
+        batch.extend(self.__get_FASTQ_for_proper_pairs(step_id=step_id, contig=contig, contig_name=contig_name))
+        # SPAdes
         batch.append('conda activate %s\n\n' % self.envs4steps[fn_name])
         self.required_conda_envs.add(self.envs4steps[fn_name]) # add env name to required env list
         # PE
+        batch.append(f'[ -d "SPAdes/{contig_name}" ] && rm -fr "SPAdes/{contig_name}"\n')
+        batch.append(f'mkdir -p "SPAdes/{contig_name}"\n')
         batch.append('spades.py \\\n')
-        batch.append('    -o "%s_PE" \\\n' % step_id)
-        batch.append('    --rna \\\n')
-        batch.append('    -1 "$FASTQ_unmapped_R1" \\\n')
-        batch.append('    -2 "$FASTQ_unmapped_R2" \\\n')
+        batch.append(f'    -o "SPAdes/{contig_name}" \\\n')
+        if mode == "rnaviral":
+            batch.append('    --rnaviral \\\n')
+        else:
+            if is_RNA_seq:
+                batch.append('    --rna \\\n')
+            batch.append('    --careful \\\n')
+        batch.append('    -1 "$FASTQ_CONTIG_R1" \\\n')
+        batch.append('    -2 "$FASTQ_CONTIG_R2" \\\n')
         batch.append('    --threads %d \\\n' % self.threadN)
-        batch.append('    --memory 250\n')
+        batch.append('    --memory 64\n')
         batch.append('if [ $? -ne 0 ]; then echo "Error: %s - PE failed."; exit 1; fi\n\n' % step_id)
-        # Singleton
-        batch.append('spades.py \\\n')
-        batch.append('    -o "%s_S" \\\n' % step_id)
-        batch.append('    --rna \\\n')
-        batch.append('    -s "$FASTQ_unmapped_S" \\\n')
-        batch.append('    --threads %d \\\n' % self.threadN)
-        batch.append('    --memory 250\n')
-        batch.append('if [ $? -ne 0 ]; then echo "Error: %s - Singleton failed."; exit 1; fi\n\n' % step_id)
         batch.append('echo -e "%s\\t$(date +\'%%Y-%%m-%%d %%H:%%M:%%S\')" >> "$my_progress"\n\n' % step_id)
         batch.append('conda deactivate\n\n\n')
         # test if this step has already been completed
