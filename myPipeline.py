@@ -1577,8 +1577,6 @@ class Pipeline:
         batch = []
         if not contig_name:
             contig_name = str(contig)
-        if mode != "rnaviral":
-            mode = "general"
         fn_name = inspect.currentframe().f_code.co_name  # get the name of the function
         step_id = self.__current_step_id + "|" + fn_name + f"[{contig_name}]_{mode}"
         batch.append(f'{"#" * (len(step_id) + 8)}\n')
