@@ -1538,7 +1538,7 @@ class Pipeline:
         self.batch[step_id].extend(batch)
 
 
-    def __get_FASTQ_for_proper_pairs(self, step_id, contig, contig_name, force=False):
+    def __get_FASTQ_for_proper_pairs(self, step_id, contig, contig_name):
         batch = []
         fn_name = inspect.currentframe().f_code.co_name  # get the name of the function
         # step_id = self.__current_step_id + "|" + fn_name + f"{contig}"
@@ -1565,7 +1565,7 @@ class Pipeline:
         batch.append('    -s /dev/null \\\n')
         batch.append('    -n -\n')
         # check if commands were completed successfully
-        batch.append('if [ $? -ne 0 ]; then echo "Error: %s failed."; exit 1; fi\n\n' % step_id)
+        batch.append('if [ $? -ne 0 ]; then echo "Error: %s - prepare FASTQ failed."; exit 1; fi\n\n' % step_id)
         batch.append('echo -e "%s\\t$(date +\'%%Y-%%m-%%d %%H:%%M:%%S\')" >> "$my_progress"\n\n' % step_id)
         batch.append('conda deactivate\n\n\n')
         # this internal function is called by another function
@@ -1573,7 +1573,7 @@ class Pipeline:
         return batch
 
 
-    def SPAdes(self, contig, is_RNA_seq=True, mode="rnaviral", contig_name=None):
+    def SPAdes(self, contig, is_RNA_seq=True, mode="rnaviral", contig_name=None, force=False):
         batch = []
         if not contig_name:
             contig_name = str(contig)
@@ -1607,7 +1607,7 @@ class Pipeline:
         batch.append('conda deactivate\n\n\n')
         # test if this step has already been completed
         # this is an endpoint, no need to set current step id
-        if step_id in self.progress:
+        if step_id in self.progress and not force:
             batch = self.__comment_lines(batch)
         else:
             self.is_completed = False
