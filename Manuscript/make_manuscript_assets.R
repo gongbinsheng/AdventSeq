@@ -1,8 +1,10 @@
 #!/usr/bin/env Rscript
 
 suppressPackageStartupMessages({
+  library(jsonlite)
   library(readr)
   library(dplyr)
+  library(purrr)
   library(tidyr)
   library(ggplot2)
   library(grid)
@@ -89,6 +91,44 @@ kraken <- read_tsv_q("Analyses/full_run/tables/08_kraken2_vs_rvdbv31_taxid_summa
   filter(include_analysis)
 pca_scores <- read_tsv_q("Analyses/full_run/tables/04_host_pca_scores.tsv") %>%
   filter(include_analysis, count_kind == "count_pairs")
+fastp_json_files <- list.files("Results/fastp", pattern = "\\.fastp\\.json$", full.names = TRUE)
+
+parse_fastp_json <- function(path) {
+  obj <- fromJSON(path)
+  sample_id <- sub("\\.fastp\\.json$", "", basename(path))
+  tibble(
+    sample_id = sample_id,
+    before_total_reads = obj$summary$before_filtering$total_reads,
+    adapter_trimmed_reads = obj$adapter_cutting$adapter_trimmed_reads,
+    polyx_trimmed_reads = obj$polyx_trimming$total_polyx_trimmed_reads,
+    polyA_reads = obj$polyx_trimming$polyx_trimmed_reads[["A"]],
+    polyT_reads = obj$polyx_trimming$polyx_trimmed_reads[["T"]],
+    polyC_reads = obj$polyx_trimming$polyx_trimmed_reads[["C"]],
+    polyG_reads = obj$polyx_trimming$polyx_trimmed_reads[["G"]],
+    q20_before = obj$summary$before_filtering$q20_rate,
+    q20_after = obj$summary$after_filtering$q20_rate,
+    q30_before = obj$summary$before_filtering$q30_rate,
+    q30_after = obj$summary$after_filtering$q30_rate
+  )
+}
+
+fastp_extended <- map_dfr(fastp_json_files, parse_fastp_json) %>%
+  inner_join(
+    sample_meta %>%
+      filter(include_analysis) %>%
+      select(sample_id, experiment_protocol),
+    by = "sample_id"
+  ) %>%
+  mutate(
+    adapter_trimmed_fraction = adapter_trimmed_reads / before_total_reads,
+    polyx_trimmed_fraction = polyx_trimmed_reads / before_total_reads,
+    q20_gain = q20_after - q20_before,
+    q30_gain = q30_after - q30_before,
+    polyA_fraction = polyA_reads / polyx_trimmed_reads,
+    polyT_fraction = polyT_reads / polyx_trimmed_reads,
+    polyC_fraction = polyC_reads / polyx_trimmed_reads,
+    polyG_fraction = polyG_reads / polyx_trimmed_reads
+  )
 
 protocol_summary <- sample_meta %>%
   filter(include_analysis) %>%
@@ -255,6 +295,23 @@ host_support_summary <- assigned_summary %>%
 
 write_tsv_q(host_support_summary, "Suppl_Table1.tsv")
 write_tsv_q(concordance, "Suppl_Table2.tsv")
+write_tsv_q(
+  fastp_extended %>%
+    group_by(experiment_protocol) %>%
+    summarise(
+      median_adapter_trimmed_reads_pct = round(median(adapter_trimmed_fraction) * 100, 2),
+      median_polyx_trimmed_reads_pct = round(median(polyx_trimmed_fraction) * 100, 2),
+      median_q20_gain_pct_points = round(median(q20_gain) * 100, 2),
+      median_q30_gain_pct_points = round(median(q30_gain) * 100, 2),
+      median_polyA_share_pct = round(median(polyA_fraction) * 100, 1),
+      median_polyT_share_pct = round(median(polyT_fraction) * 100, 1),
+      median_polyC_share_pct = round(median(polyC_fraction) * 100, 1),
+      median_polyG_share_pct = round(median(polyG_fraction) * 100, 1),
+      .groups = "drop"
+    ) %>%
+    arrange(desc(median_adapter_trimmed_reads_pct)),
+  "Suppl_Table3.tsv"
+)
 
 plot_nonhost <- denominators %>%
   mutate(experiment_protocol = factor(experiment_protocol, levels = unique(protocol_summary$experiment_protocol))) %>%

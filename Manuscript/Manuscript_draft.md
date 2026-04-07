@@ -50,6 +50,12 @@ The benchmark dataset (See Materials and Methods) covered 42 included human-cell
 
 **Table 1: Metadata of the benchmark dataset**
 
+### QC filtering, adapter trimming, and polyX trimming were protocol-dependent but preserved most reads
+
+Fastp QC summaries from `Results/fastp` showed that read filtering and adapter trimming preserved most reads in the benchmark libraries. Across all included samples, the median post-filtering retention fraction was 95.1%, with values ranging from 70.3% to 98.7%. Retention was highest for the Jumpcode and NEB\_WO\_RD protocols (median retained fractions 98.3% and 97.8%, respectively), remained high for NEB\_RD, Trio, and Ribozero+NEBNext libraries (94.7% to 96.0%), and was somewhat lower for RepliG+Nextera\_XT libraries (91.7%). The main exception was Jumpcode\_Trio, which showed a substantially lower median retained fraction of 75.3%, although its median post-filtering read depth still remained high at 144.2 million reads.
+
+Adapter trimming and polyX trimming displayed protocol-specific patterns. Across all libraries, the median fraction of reads reported as adapter-trimmed was only 0.49%, but this value was markedly higher for RepliG+Nextera\_XT (39.0%) and, to a lesser extent, Ribozero+NEBNext (7.04%) libraries, while the other protocols remained below 1% (Suppl Table 3). PolyX trimming was generally modest overall (median 1.25% of reads), but again varied by protocol, reaching a median of 20.7% in Jumpcode\_Trio, compared with about 0.8% to 3.0% in the other protocols. Across all samples, QC filtering improved median Q20 and Q30 rates by 1.45 and 1.73 percentage points, respectively. The composition of polyX-trimmed reads was dominated overall by polyA (54.0%) and polyT (31.8%), with smaller contributions from polyC (10.7%) and polyG (3.6%), although some protocols showed clear shifts in composition, such as the stronger polyC component in NEB\_WO\_RD and RepliG+Nextera\_XT libraries. Overall, the QC step removed low-quality, adapter-derived, and low-complexity terminal sequence while preserving sufficient sequencing depth for the downstream host- and virus-oriented comparisons.
+
 ### Host subtraction dominated the amount of sequence entering the viral stage
 
 The clearest method effect emerged before viral alignment. Across the seven protocols, BWA-MEM host subtraction left median non-host read pools of 3.4 x 10^5^ to 1.8 x 10^6^ reads, whereas HISAT2 left 7.0 x 10^6^ to 5.7 x 10^7^ reads and STAR left 2.0 x 10^6^ to 3.7 x 10^7^ reads (Figure 2A; Table 1). Relative to BWA-MEM, HISAT2 passed 13.1- to 57.2-fold more reads into the viral stage and STAR passed 4.2- to 44.3-fold more. Thus, the choice of host mapper strongly determined how much ambiguous host-like sequence was allowed to propagate into downstream viral analyses.
@@ -162,6 +168,6 @@ The project directory contains the analysis scripts used to generate `Analyses/f
 
 `Table 3` lists the sample-level HEV versus Zika comparison used in Figure 4.
 
-`Suppl Table 1` summarizes host-side mapper concordance and detected-gene counts. `Suppl Table 2` reports virus-level concordance between read-count and ViraQuant summaries.
+`Suppl Table 1` summarizes host-side mapper concordance and detected-gene counts. `Suppl Table 2` reports virus-level concordance between read-count and ViraQuant summaries. `Suppl Table 3` summarizes protocol-level adapter trimming, polyX trimming, quality-score gains, and polyX composition from the `fastp` outputs.
 
 ## References
