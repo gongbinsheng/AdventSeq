@@ -1538,7 +1538,7 @@ class Pipeline:
         self.batch[step_id].extend(batch)
 
 
-    def BAM_to_proper_paired_FASTQ_of_a_contig(self, contig, contig_name, force=False):
+    def BAM_to_proper_paired_FASTQ_of_a_contig(self, contig, contig_name=None, force=False):
         batch = []
         if not contig_name:
             contig_name = str(contig)
