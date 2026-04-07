@@ -1579,8 +1579,10 @@ class Pipeline:
         self.FASTQ_ready_for_contigs.add(contig_name)
 
 
-    def SPAdes(self, contig, is_RNA_seq=True, mode="rnaviral", contig_name=None, force=False):
+    def SPAdes(self, contig, mode="rnaviral", contig_name=None, force=False):
         batch = []
+        if mode not in ("rna","rnaviral"):
+            mode = "general_careful"
         if not contig_name:
             contig_name = str(contig)
         # call function to prepare FASTQ files for the contig    
@@ -1601,9 +1603,9 @@ class Pipeline:
         batch.append('    -o "${SPAdes_Output}" \\\n')
         if mode == "rnaviral":
             batch.append('    --rnaviral \\\n')
+        elif mode == "rna":
+            batch.append('    --rna \\\n')
         else:
-            if is_RNA_seq:
-                batch.append('    --rna \\\n')
             batch.append('    --careful \\\n')
         batch.append('    -1 "$FASTQ_CONTIG_R1" \\\n')
         batch.append('    -2 "$FASTQ_CONTIG_R2" \\\n')
