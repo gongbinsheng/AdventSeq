@@ -59,8 +59,8 @@ def parse_gtf(file_path):
             # parse line
             try:
                 chrom, source, feature_type, start1, end1, score, strand, frame, attributes = fields[:9]
-            except:
-                sys.exit(f"Could not parse line:\n{line}")
+            except Exception as e:
+                sys.exit(f"Could not parse line:\n{line}\n\n{e}\n")
             # parse attributes
             try:
                 attributes_dict = {}
@@ -69,8 +69,8 @@ def parse_gtf(file_path):
                     if pair.strip():  # Check if pair is not empty
                         key, value = pair.strip().split(' ', 1)  # Split by first space to separate key and value
                         attributes_dict[key] = value.strip('"')
-            except:
-                sys.exit(f"Could not parse attributes:\n{line}")
+            except Exception as e:
+                sys.exit(f"Could not parse attributes:\n{line}\n\n{e}\n")
             # save information into a dictionary
             gtf_record = {
                 'chrom': chrom,
