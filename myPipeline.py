@@ -130,7 +130,7 @@ class Pipeline:
                   "featureCounts":"Subread",
                   "depth_by_pos":"samtools",
                   "BAM2BigWig":"deepTools",
-                  "BAM_to_proper_paired_FASTQ_of_a_contig":"samtools",
+                  "__BAM_to_proper_paired_FASTQ_of_a_contig":"samtools",
                   "SPAdes":"SPAdes",
                   "taxomomic_classifier":"AdVentSeq",
                   "ViraQuant":"AdVentSeq",
@@ -186,6 +186,7 @@ class Pipeline:
 
         self.RG_is_added = False
         self.host_read_pairs_removed = False
+        self.FASTQ_ready_for_contigs = set()
 
 
     def __get_data_type(self):
@@ -1538,10 +1539,10 @@ class Pipeline:
         self.batch[step_id].extend(batch)
 
 
-    def BAM_to_proper_paired_FASTQ_of_a_contig(self, contig, contig_name=None, force=False):
+    def __BAM_to_proper_paired_FASTQ_of_a_contig(self, contig, contig_name, force=False):
         batch = []
-        if not contig_name:
-            contig_name = str(contig)
+        if contig_name in self.FASTQ_ready_for_contigs:
+            return
         fn_name = inspect.currentframe().f_code.co_name  # get the name of the function
         step_id = self.__current_step_id + "|" + fn_name + f"[{contig_name}]"
         batch.append(f'{"#" * (len(step_id) + 8)}\n')
@@ -1567,24 +1568,29 @@ class Pipeline:
         batch.append('    -s /dev/null \\\n')
         batch.append('    -n -\n')
         # test if this step has already been completed
-        self.set_current_step_id(step_id) # this step set SID and FASTQ_R1/2, must set current step id
+        # do not set step_id, this step is an internal function and is called by SPAdes and others.
         if step_id in self.progress and not force:
             batch = self.__comment_lines(batch)
         else:
             self.is_completed = False
+        # a little different from other functions. this internal function may be called multiple times.
+        # add contig_name to set for testing to prevent duplicate script lines
         self.batch[step_id].extend(batch)
+        self.FASTQ_ready_for_contigs.add(contig_name)
 
 
     def SPAdes(self, contig, is_RNA_seq=True, mode="rnaviral", contig_name=None, force=False):
         batch = []
         if not contig_name:
             contig_name = str(contig)
+        # call function to prepare FASTQ files for the contig    
+        self.__BAM_to_proper_paired_FASTQ_of_a_contig(contig=contig, contig_name=contig_name, force=force)
+        # SPAdes
         fn_name = inspect.currentframe().f_code.co_name  # get the name of the function
         step_id = self.__current_step_id + "|" + fn_name + f"[{contig_name}]_{mode}"
         batch.append(f'{"#" * (len(step_id) + 8)}\n')
         batch.append('### %s ###\n' % step_id)
         batch.append(f'{"#" * (len(step_id) + 8)}\n')
-        # SPAdes
         batch.append('conda activate %s\n\n' % self.envs4steps[fn_name])
         self.required_conda_envs.add(self.envs4steps[fn_name]) # add env name to required env list
         # PE
