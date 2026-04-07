@@ -1,0 +1,8 @@
+experiment_protocol	median_adapter_trimmed_reads_pct	median_polyx_trimmed_reads_pct	median_q20_gain_pct_points	median_q30_gain_pct_points	median_polyA_share_pct	median_polyT_share_pct	median_polyC_share_pct	median_polyG_share_pct
+RepliG+Nextera_XT	38.98	1.09	3.02	3.71	20.4	6.8	47.4	23.3
+Ribozero+NEBNext	7.04	0.81	1.5	1.83	40.1	33.1	12.4	12.4
+Jumpcode_Trio	0.72	20.71	3.31	3.94	59.7	38.8	0.9	0.3
+Trio	0.44	1.75	1.43	1.71	45.9	44.3	6.3	3.5
+NEB_RD	0.42	2.97	1.54	1.79	46.8	6	35.6	8.1
+Jumpcode	0.24	1.1	0.59	0.72	37.7	25.2	25.3	7.5
+NEB_WO_RD	0.24	1.33	0.73	0.89	29.2	1.3	54	15.5

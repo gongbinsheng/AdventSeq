@@ -214,14 +214,14 @@ __marimo__/
 sample_data/
 
 # Manuscript
-Manuscript/
+Manuscript/Analyses/
+Manuscript/Exploration/
+Manuscript/Results/
+Manuscript/sample_data/
+Manuscript/AdVentSeq.pptx
+Manuscript/Rplots.pdf
 
 # Tests
 tests/
 test*
 .Rproj.user
-
-# include
-!Manuscript/More.md
-!Manuscript/Manuscript_draft.md 
-!Manuscript/make_manuscript_assets.R

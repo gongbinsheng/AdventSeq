@@ -1,0 +1,8 @@
+experiment_protocol	included_samples	control_samples	inoculum_1to1_samples	inoculum_10to1_samples	median_after_filtering_reads	median_retained_fraction	median_non_host_reads_HISAT2	median_non_host_reads_STAR	median_non_host_reads_bwa_mem
+NEB_WO_RD	6	2	2	2	274539669	0.978	13648710	32091234	1039257
+Ribozero+NEBNext	6	2	2	2	148219513	0.947	15406349	3322807	784526
+Jumpcode_Trio	6	2	2	2	144222120	0.753	56560500	36937322	1847508
+NEB_RD	6	2	2	2	127773736	0.96	10603779	4985445	731842
+Jumpcode	6	2	2	2	122239048	0.983	6963799	1973248	344223
+Trio	6	2	2	2	101285015	0.948	26966927	11636559	471313
+RepliG+Nextera_XT	6	2	2	2	95267067	0.917	23457962	29408401	663777
