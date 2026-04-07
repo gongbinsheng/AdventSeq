@@ -1588,7 +1588,7 @@ class Pipeline:
         batch.append('conda activate %s\n\n' % self.envs4steps[fn_name])
         self.required_conda_envs.add(self.envs4steps[fn_name]) # add env name to required env list
         # PE
-        batch.append(f'SPAdes_Output="SPAdes/{contig_name}/${mode}"\n')
+        batch.append(f'SPAdes_Output="SPAdes/{contig_name}/{mode}"\n')
         batch.append('[ -d "${SPAdes_Output}" ] && rm -fr "${SPAdes_Output}"\n')
         batch.append('mkdir -p "${SPAdes_Output}"\n')
         batch.append('spades.py \\\n')
