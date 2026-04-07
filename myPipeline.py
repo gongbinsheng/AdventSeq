@@ -1567,6 +1567,9 @@ class Pipeline:
         batch.append('    -0 /dev/null \\\n')
         batch.append('    -s /dev/null \\\n')
         batch.append('    -n -\n')
+        batch.append('if [ $? -ne 0 ]; then echo "Error: %s failed."; exit 1; fi\n\n' % step_id)
+        batch.append('echo -e "%s\\t$(date +\'%%Y-%%m-%%d %%H:%%M:%%S\')" >> "$my_progress"\n\n' % step_id)
+        batch.append('conda deactivate\n\n\n')
         # test if this step has already been completed
         # do not set step_id, this step is an internal function and is called by SPAdes and others.
         if step_id in self.progress and not force:
