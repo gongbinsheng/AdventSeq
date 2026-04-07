@@ -1543,7 +1543,7 @@ class Pipeline:
         if not contig_name:
             contig_name = str(contig)
         fn_name = inspect.currentframe().f_code.co_name  # get the name of the function
-        step_id = self.__current_step_id + "|" + fn_name + f"{contig_name}"
+        step_id = self.__current_step_id + "|" + fn_name + f"[{contig_name}]"
         batch.append(f'{"#" * (len(step_id) + 8)}\n')
         batch.append('### %s ###\n' % step_id)
         batch.append(f'{"#" * (len(step_id) + 8)}\n')
