@@ -220,3 +220,8 @@ Manuscript/
 tests/
 test*
 .Rproj.user
+
+# include
+!Manuscript/More.md
+!Manuscript/Manuscript_draft.md 
+!Manuscript/make_manuscript_assets.R
