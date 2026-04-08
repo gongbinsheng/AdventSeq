@@ -1702,15 +1702,12 @@ class Pipeline:
             surfix = f"_top{top_n}"
         fn_name = inspect.currentframe().f_code.co_name  # get the name of the function
         step_id = self.__current_step_id + "|" + f"{fn_name}{surfix}"
-        if not virus_list:
-            step_id = step_id + f"_top{top_n}"
         batch.append(f'{"#" * (len(step_id) + 8)}\n')
         batch.append('### %s ###\n' % step_id)
         batch.append(f'{"#" * (len(step_id) + 8)}\n')
         batch.append('conda activate %s\n\n' % self.envs4steps[fn_name])
         self.required_conda_envs.add(self.envs4steps[fn_name])  # add env name to required env list
         # commands
-        
         batch.append('python /account001/bgong/workspace/AdVentSeq/ViraQuant.py \\\n')
         batch.append('    --bam "${sorted_BAM}" \\\n')
         if scan_by:
