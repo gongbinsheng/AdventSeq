@@ -137,7 +137,7 @@ Examples:
 - `depth_at_85pct>=3` adds `85` to effective `--percents`
 - `pass_k_90pct_ge_3==1` adds `90` to effective `--kpercents` and sets effective `--n-min 3`
 
-If a user-supplied `--n-min`, `--percents`, or `--kpercents` conflicts with the scan metric, ViraQuant warns and uses the effective values implied by `--scan-by`. The companion YAML file records those final values plus any auto-adjustments.
+If a user-supplied `--n-min`, `--percents`, or `--kpercents` conflicts with the scan metric, ViraQuant warns and uses the effective values implied by `--scan-by`. The companion YAML file records only the arguments that were actually used for the run.
 
 ### Virus-level aggregation details (when 2-col virus list is used)
 Virus rows are computed by pooling per-base depth histograms across member contigs (position-weighted), i.e. equivalent to concatenating contigs end-to-end.
@@ -220,7 +220,7 @@ uv run ViraQuant.py \
   - Depth-based metrics are typically more robust than raw mapped read totals.
 - In `--scan-by` mode, depth calculations include secondary alignments but still exclude supplementary alignments.
   - `mapped_reads` remains the idxstats value, so scan-mode depth can be more permissive than the read-count column.
-- The YAML sidecar stores the effective runtime arguments used for the run, including any scan-driven auto-adjustments.
+- The YAML sidecar stores only the arguments actually used for the run.
 - Virus-level pooling assumes contigs sharing the same virus name are reasonably comparable (segments, strains, partials).
   - If contigs represent many different strains, pooled virus-level metrics describe “support for the virus name” rather than a single strain.
 
@@ -235,7 +235,6 @@ For quantification-like interpretation:
   - `best_contig_frac_ge_n`
 ---
 If you want the virus-level “best contig” to be chosen by something *other than* `mapped_per_bp` (e.g., highest `depth_at_90pct` or highest `frac_ge_n`), tell me your preference and I’ll swap the ranking key.
-
 
 
 

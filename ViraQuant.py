@@ -515,12 +515,9 @@ def write_yaml_file(path: Path, payload: dict):
         fh.write("\n")
 
 
-def build_run_metadata(args, out_path: Path, yml_path: Path, n_min: int, percents, kpercents, auto_adjustments):
-    return {
+def build_run_metadata(args, out_path: Path, n_min: int, percents, kpercents, scan_mode: bool):
+    payload = {
         "bam": str(Path(args.bam).expanduser().resolve()),
-        "viruses": args.viruses,
-        "top_n": args.top_n,
-        "scan_by": args.scan_by,
         "percents": list(percents),
         "kpercents": list(kpercents),
         "n_min": n_min,
@@ -528,9 +525,14 @@ def build_run_metadata(args, out_path: Path, yml_path: Path, n_min: int, percent
         "include_duplicates": args.include_duplicates,
         "max_depth": args.max_depth,
         "out": str(out_path),
-        "yml": str(yml_path),
-        "auto_adjustments": auto_adjustments,
     }
+    if scan_mode:
+        payload["scan_by"] = args.scan_by
+    elif args.viruses is not None:
+        payload["viruses"] = args.viruses
+    else:
+        payload["top_n"] = args.top_n
+    return payload
 
 
 def passes_scan_filter(metrics, scan_filter):
@@ -725,7 +727,7 @@ def main():
 
     scan_mode = args.scan_by is not None
     try:
-        n_min, percents, kpercents, scan_filter, auto_adjustments = resolve_effective_runtime_args(
+        n_min, percents, kpercents, scan_filter, _auto_adjustments = resolve_effective_runtime_args(
             args, argv
         )
     except ValueError as exc:
@@ -774,7 +776,7 @@ def main():
     print(f"Writing run arguments to\n  {yml_path}", file=sys.stderr)
     write_yaml_file(
         yml_path,
-        build_run_metadata(args, out_path, yml_path, n_min, percents, kpercents, auto_adjustments),
+        build_run_metadata(args, out_path, n_min, percents, kpercents, scan_mode),
     )
     out_fh = open(out_path, "w", encoding="utf-8")
 
