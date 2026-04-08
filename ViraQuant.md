@@ -66,6 +66,11 @@ If `--scan-by` is provided, the script switches to a full-BAM contig scan:
 - it ignores `--viruses` and `--top-n`
 - it reports only contigs passing the `--scan-by` comparison
 - it includes secondary alignments in depth calculations for scan mode only
+- it auto-adjusts `--n-min`, `--percents`, and `--kpercents` from the scan metric name when needed
+
+`--out` is required. Every run writes:
+- a TSV at `--out`
+- a companion YAML file with the same stem, e.g. `virus_metrics.tsv` plus `virus_metrics.yml`
 
 ## Output (TSV)
 One row per contig, plus optional aggregated virus rows.
@@ -115,15 +120,24 @@ For chosen --n-min (default 1):
 ```
 
 Rules:
-- the left-hand side must be an existing numeric contig metric for the current run
+- the left-hand side must be a numeric contig metric name
 - supported operators are `>`, `>=`, `<`, `<=`, `==`
-- dynamic metric names depend on `--n-min`, `--percents`, and `--kpercents`
+- dynamic metric names auto-adjust the effective runtime arguments
 - scan mode outputs contig rows only; virus-group rows are skipped
 
-This means:
-- `mean_depth_ge_1>=1` is valid only when `--n-min 1`
-- `depth_at_90pct>=3` is valid only if `90` is included in `--percents`
-- `pass_k_90pct_ge_1==1` is valid only if `90` is included in `--kpercents`
+Auto-adjust rules:
+- `frac_ge_N`, `mean_depth_ge_N`, and `median_depth_ge_N` set effective `--n-min N`
+- `depth_at_Ppct` adds `P` to effective `--percents`
+- `pass_k_Ppct_ge_N` adds `P` to effective `--kpercents` and sets effective `--n-min N`
+- the comparison value does not change argument settings
+
+Examples:
+- `mean_depth_ge_2>=2` sets effective `--n-min 2`
+- `mean_depth_ge_1>=2` keeps effective `--n-min 1`
+- `depth_at_85pct>=3` adds `85` to effective `--percents`
+- `pass_k_90pct_ge_3==1` adds `90` to effective `--kpercents` and sets effective `--n-min 3`
+
+If a user-supplied `--n-min`, `--percents`, or `--kpercents` conflicts with the scan metric, ViraQuant warns and uses the effective values implied by `--scan-by`. The companion YAML file records those final values plus any auto-adjustments.
 
 ### Virus-level aggregation details (when 2-col virus list is used)
 Virus rows are computed by pooling per-base depth histograms across member contigs (position-weighted), i.e. equivalent to concatenating contigs end-to-end.
@@ -173,11 +187,22 @@ uv run ViraQuant.py \
 ```bash
 uv run ViraQuant.py \
   --bam sample.sorted.bam \
-  --scan-by 'mean_depth_ge_1>=1' \
+  --scan-by 'mean_depth_ge_2>=2' \
   --out passing_contigs.tsv
 ```
 
-### 5) Customize quantiles and breadth thresholds; require depth ≥ 3
+### 5) Full-BAM scan: auto-extend `--percents`
+```bash
+uv run ViraQuant.py \
+  --bam sample.sorted.bam \
+  --percents 80,90 \
+  --scan-by 'depth_at_85pct>=3' \
+  --out scan_depth85.tsv
+```
+
+This run uses effective `--percents 80,85,90` and records that in `scan_depth85.yml`.
+
+### 6) Customize quantiles and breadth thresholds; require depth ≥ 3
 ```bash
 uv run ViraQuant.py \
   --bam sample.sorted.bam \
@@ -195,6 +220,7 @@ uv run ViraQuant.py \
   - Depth-based metrics are typically more robust than raw mapped read totals.
 - In `--scan-by` mode, depth calculations include secondary alignments but still exclude supplementary alignments.
   - `mapped_reads` remains the idxstats value, so scan-mode depth can be more permissive than the read-count column.
+- The YAML sidecar stores the effective runtime arguments used for the run, including any scan-driven auto-adjustments.
 - Virus-level pooling assumes contigs sharing the same virus name are reasonably comparable (segments, strains, partials).
   - If contigs represent many different strains, pooled virus-level metrics describe “support for the virus name” rather than a single strain.
 
@@ -209,7 +235,6 @@ For quantification-like interpretation:
   - `best_contig_frac_ge_n`
 ---
 If you want the virus-level “best contig” to be chosen by something *other than* `mapped_per_bp` (e.g., highest `depth_at_90pct` or highest `frac_ge_n`), tell me your preference and I’ll swap the ranking key.
-
 
 
 

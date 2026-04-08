@@ -34,6 +34,7 @@ Virus-level aggregation (when 2-col virus list is provided):
 import sys
 import pysam
 import argparse
+import json
 import operator
 import re
 
@@ -44,12 +45,22 @@ DEFAULT_PCTS = [0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
 SCAN_EXPR_RE = re.compile(
     r"^\s*([A-Za-z_][A-Za-z0-9_]*)\s*(>=|<=|==|>|<)\s*([-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?)\s*$"
 )
+SCAN_N_MIN_METRIC_RE = re.compile(r"^(frac_ge|mean_depth_ge|median_depth_ge)_(\d+)$")
+SCAN_DEPTH_AT_METRIC_RE = re.compile(r"^depth_at_(\d+)pct$")
+SCAN_PASS_K_METRIC_RE = re.compile(r"^pass_k_(\d+)pct_ge_(\d+)$")
 SCAN_OPERATORS = {
     ">": operator.gt,
     ">=": operator.ge,
     "<": operator.lt,
     "<=": operator.le,
     "==": operator.eq,
+}
+STATIC_FILTERABLE_METRICS = {
+    "length",
+    "mapped_reads",
+    "mapped_per_bp",
+    "breadth_cov_gt0",
+    "mean_depth_all",
 }
 
 
@@ -63,6 +74,10 @@ def parse_percents(s: str):
         if v < 0 or v > 1:
             raise ValueError(f"Percent/fraction out of range [0,1]: {v}")
     return sorted(vals)
+
+
+def unique_sorted(values):
+    return sorted(set(values))
 
 
 def load_virus_map_and_grouping(virus_arg: str):
@@ -258,6 +273,10 @@ def fmt(x):
     return "NA" if x is None else x
 
 
+def option_was_provided(argv, option: str):
+    return any(arg == option or arg.startswith(f"{option}=") for arg in argv)
+
+
 def build_flag_filter(include_duplicates: bool, include_secondary: bool = False):
     # Always exclude unmapped, QC-fail, and supplementary alignments.
     flag_filter = 0x4 | 0x200 | 0x800
@@ -282,11 +301,7 @@ def get_filterable_metric_names(n_min: int, percents, kpercents):
         n_min, percents, kpercents
     )
     return {
-        "length",
-        "mapped_reads",
-        "mapped_per_bp",
-        "breadth_cov_gt0",
-        "mean_depth_all",
+        *STATIC_FILTERABLE_METRICS,
         frac_field,
         mean_field,
         median_field,
@@ -295,22 +310,227 @@ def get_filterable_metric_names(n_min: int, percents, kpercents):
     }
 
 
-def parse_scan_by_expression(expr: str, valid_metric_names):
+def parse_scan_by_expression(expr: str):
     match = SCAN_EXPR_RE.match(expr)
     if not match:
         raise ValueError(
             "Invalid --scan-by expression. Expected exactly one comparison like "
             "'mean_depth_ge_1>=1' or 'depth_at_90pct > 5'."
         )
-
     metric_name, op_symbol, raw_value = match.groups()
+    return metric_name, op_symbol, float(raw_value)
+
+
+def validate_scan_metric_name(metric_name: str, valid_metric_names):
     if metric_name not in valid_metric_names:
         valid = ", ".join(sorted(valid_metric_names))
         raise ValueError(
             f"Unknown --scan-by metric '{metric_name}'. Valid metrics for this run: {valid}"
         )
 
-    return metric_name, op_symbol, float(raw_value)
+
+def infer_scan_metric_requirements(metric_name: str):
+    match = SCAN_N_MIN_METRIC_RE.match(metric_name)
+    if match:
+        return {"n_min": int(match.group(2)), "percents": [], "kpercents": []}
+
+    match = SCAN_DEPTH_AT_METRIC_RE.match(metric_name)
+    if match:
+        return {"n_min": None, "percents": [int(match.group(1)) / 100.0], "kpercents": []}
+
+    match = SCAN_PASS_K_METRIC_RE.match(metric_name)
+    if match:
+        return {
+            "n_min": int(match.group(2)),
+            "percents": [],
+            "kpercents": [int(match.group(1)) / 100.0],
+        }
+
+    return {"n_min": None, "percents": [], "kpercents": []}
+
+
+def format_percent_token(value: float):
+    pct = value * 100.0
+    if abs(pct - round(pct)) < 1e-9:
+        return str(int(round(pct)))
+    return f"{pct:g}"
+
+
+def format_percent_list(values):
+    return ",".join(format_percent_token(v) for v in values)
+
+
+def normalize_percent_list(values):
+    return unique_sorted(values)
+
+
+def make_adjustment_entry(original, effective, reason: str):
+    return {
+        "original": original,
+        "effective": effective,
+        "reason": reason,
+    }
+
+
+def print_adjustment_warning(option_name: str, original, effective, reason: str):
+    print(
+        f"WARNING: {reason}; overriding {option_name} from {original!r} to {effective!r}.",
+        file=sys.stderr,
+    )
+
+
+def resolve_effective_runtime_args(args, argv):
+    explicit_n_min = option_was_provided(argv, "--n-min")
+    explicit_percents = option_was_provided(argv, "--percents")
+    explicit_kpercents = option_was_provided(argv, "--kpercents")
+
+    effective_n_min = args.n_min
+    effective_percents = normalize_percent_list(parse_percents(args.percents) if args.percents else DEFAULT_PCTS)
+    auto_adjustments = {}
+    scan_filter = None
+    implied = {"n_min": None, "percents": [], "kpercents": []}
+
+    if args.scan_by is not None:
+        metric_name, op_symbol, threshold = parse_scan_by_expression(args.scan_by)
+        implied = infer_scan_metric_requirements(metric_name)
+        scan_filter = (metric_name, op_symbol, threshold)
+
+        if implied["n_min"] is not None and effective_n_min != implied["n_min"]:
+            reason = f"--scan-by metric '{metric_name}' implies --n-min {implied['n_min']}"
+            if explicit_n_min:
+                print_adjustment_warning("--n-min", args.n_min, implied["n_min"], reason)
+            auto_adjustments["n_min"] = make_adjustment_entry(args.n_min, implied["n_min"], reason)
+            effective_n_min = implied["n_min"]
+
+        merged_percents = normalize_percent_list([*effective_percents, *implied["percents"]])
+        if merged_percents != effective_percents:
+            reason = (
+                f"--scan-by metric '{metric_name}' requires --percents to include "
+                f"{format_percent_list(implied['percents'])}"
+            )
+            if explicit_percents:
+                print_adjustment_warning(
+                    "--percents",
+                    format_percent_list(effective_percents),
+                    format_percent_list(merged_percents),
+                    reason,
+                )
+            auto_adjustments["percents"] = make_adjustment_entry(
+                list(effective_percents),
+                list(merged_percents),
+                reason,
+            )
+            effective_percents = merged_percents
+
+    if args.kpercents:
+        effective_kpercents = normalize_percent_list(parse_percents(args.kpercents))
+    else:
+        effective_kpercents = list(effective_percents)
+
+    if args.scan_by is not None:
+        metric_name = scan_filter[0]
+        merged_kpercents = normalize_percent_list([*effective_kpercents, *implied["kpercents"]])
+        if merged_kpercents != effective_kpercents:
+            reason = (
+                f"--scan-by metric '{metric_name}' requires --kpercents to include "
+                f"{format_percent_list(implied['kpercents'])}"
+            )
+            if explicit_kpercents:
+                print_adjustment_warning(
+                    "--kpercents",
+                    format_percent_list(effective_kpercents),
+                    format_percent_list(merged_kpercents),
+                    reason,
+                )
+            auto_adjustments["kpercents"] = make_adjustment_entry(
+                list(effective_kpercents),
+                list(merged_kpercents),
+                reason,
+            )
+            effective_kpercents = merged_kpercents
+
+        if not explicit_kpercents:
+            baseline_kpercents = normalize_percent_list(parse_percents(args.percents) if args.percents else DEFAULT_PCTS)
+            if effective_kpercents != baseline_kpercents and "kpercents" not in auto_adjustments:
+                auto_adjustments["kpercents"] = make_adjustment_entry(
+                    list(baseline_kpercents),
+                    list(effective_kpercents),
+                    "--kpercents default was recomputed after --scan-by adjustments",
+                )
+
+        validate_scan_metric_name(
+            scan_filter[0],
+            get_filterable_metric_names(effective_n_min, effective_percents, effective_kpercents),
+        )
+
+    return effective_n_min, effective_percents, effective_kpercents, scan_filter, auto_adjustments
+
+
+def yaml_scalar(value):
+    if value is None:
+        return "null"
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, (int, float)):
+        return f"{value:g}" if isinstance(value, float) else str(value)
+    return json.dumps(str(value))
+
+
+def yaml_lines(value, indent: int = 0):
+    prefix = " " * indent
+    if isinstance(value, dict):
+        if not value:
+            return [f"{prefix}{{}}"]
+        lines = []
+        for key, item in value.items():
+            if isinstance(item, dict) and not item:
+                lines.append(f"{prefix}{key}: {{}}")
+            elif isinstance(item, list) and not item:
+                lines.append(f"{prefix}{key}: []")
+            elif isinstance(item, (dict, list)):
+                lines.append(f"{prefix}{key}:")
+                lines.extend(yaml_lines(item, indent + 2))
+            else:
+                lines.append(f"{prefix}{key}: {yaml_scalar(item)}")
+        return lines
+
+    if isinstance(value, list):
+        if not value:
+            return [f"{prefix}[]"]
+        lines = []
+        for item in value:
+            if isinstance(item, (dict, list)):
+                lines.append(f"{prefix}-")
+                lines.extend(yaml_lines(item, indent + 2))
+            else:
+                lines.append(f"{prefix}- {yaml_scalar(item)}")
+        return lines
+
+    return [f"{prefix}{yaml_scalar(value)}"]
+
+
+def write_yaml_file(path: Path, payload: dict):
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write("\n".join(yaml_lines(payload)))
+        fh.write("\n")
+
+
+def build_run_metadata(args, out_path: Path, yml_path: Path, n_min: int, percents, kpercents, auto_adjustments):
+    return {
+        "bam": str(Path(args.bam).expanduser().resolve()),
+        "viruses": args.viruses,
+        "top_n": args.top_n,
+        "scan_by": args.scan_by,
+        "percents": list(percents),
+        "kpercents": list(kpercents),
+        "n_min": n_min,
+        "min_mapq": args.min_mapq,
+        "include_duplicates": args.include_duplicates,
+        "max_depth": args.max_depth,
+        "out": str(out_path),
+        "yml": str(yml_path),
+        "auto_adjustments": auto_adjustments,
+    }
 
 
 def passes_scan_filter(metrics, scan_filter):
@@ -446,6 +666,7 @@ def build_contig_row(contig: str, label: str, result, n_min: int, percents, kper
 
 
 def main():
+    argv = sys.argv[1:]
     ap = argparse.ArgumentParser(
         description="Quantify virus contigs (and virus groups) from BAM using depth quantiles and breadth/threshold metrics."
     )
@@ -469,7 +690,8 @@ def main():
         default=None,
         help=(
             "Full-BAM contig scan mode. Compute depth metrics for every contig, ignore --viruses and --top-n, "
-            "and report only contigs passing a single numeric comparison such as 'mean_depth_ge_1>=1'."
+            "and report only contigs passing a single numeric comparison such as 'mean_depth_ge_2>=2'. "
+            "Dynamic metric names auto-adjust --n-min, --percents, and --kpercents as needed."
         ),
     )
     ap.add_argument(
@@ -490,25 +712,21 @@ def main():
         help="Include PCR/optical duplicates. Default filters duplicates.",
     )
     ap.add_argument("--max-depth", type=int, default=1000000, help="Pileup max depth. Default 1,000,000.")
-    ap.add_argument("--out", default="-", help="Output TSV path (default stdout).")
+    ap.add_argument("--out", required=True, help="Output TSV path. A companion .yml file is always written.")
 
-    args = ap.parse_args()
+    args = ap.parse_args(argv)
 
     if args.n_min < 1:
         print("ERROR: --n-min must be >= 1", file=sys.stderr)
         sys.exit(2)
+    if args.out == "-":
+        print("ERROR: --out must be a real file path because a companion .yml file is always written.", file=sys.stderr)
+        sys.exit(2)
 
-    percents = parse_percents(args.percents) if args.percents else DEFAULT_PCTS
-    kpercents = parse_percents(args.kpercents) if args.kpercents else list(percents)
     scan_mode = args.scan_by is not None
     try:
-        scan_filter = (
-            parse_scan_by_expression(
-                args.scan_by,
-                get_filterable_metric_names(args.n_min, percents, kpercents),
-            )
-            if scan_mode
-            else None
+        n_min, percents, kpercents, scan_filter, auto_adjustments = resolve_effective_runtime_args(
+            args, argv
         )
     except ValueError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
@@ -550,14 +768,17 @@ def main():
                 print(f"  {v}", file=sys.stderr)
             virus_ids = [v for v in virus_ids if v in lengths]
 
-    if args.out == "-":
-        out_fh = sys.stdout
-    else:
-        out_path = Path(args.out).expanduser().resolve()
-        print(f"Writing output to\n  {out_path}", file=sys.stderr)
-        out_fh = open(out_path, "w", encoding="utf-8")
+    out_path = Path(args.out).expanduser().resolve()
+    yml_path = out_path.with_suffix(".yml")
+    print(f"Writing output to\n  {out_path}", file=sys.stderr)
+    print(f"Writing run arguments to\n  {yml_path}", file=sys.stderr)
+    write_yaml_file(
+        yml_path,
+        build_run_metadata(args, out_path, yml_path, n_min, percents, kpercents, auto_adjustments),
+    )
+    out_fh = open(out_path, "w", encoding="utf-8")
 
-    header = build_header(args.n_min, percents, kpercents)
+    header = build_header(n_min, percents, kpercents)
     print("\t".join(header), file=out_fh)
 
     # Collect per-contig depth histograms and stats to support virus-level pooling
@@ -573,14 +794,14 @@ def main():
             min_mapq=args.min_mapq,
             flag_filter=flag_filter,
             max_depth=args.max_depth,
-            n_min=args.n_min,
+            n_min=n_min,
             percents=percents,
             kpercents=kpercents,
         )
 
         if scan_mode:
             if passes_scan_filter(result["metrics"], scan_filter):
-                row = build_contig_row(vid, vid, result, args.n_min, percents, kpercents)
+                row = build_contig_row(vid, vid, result, n_min, percents, kpercents)
                 print("\t".join(row), file=out_fh)
             continue
 
@@ -596,7 +817,7 @@ def main():
             "median_ge": result["median_ge"],
         }
 
-        row = build_contig_row(vid, id_to_name.get(vid, vid), result, args.n_min, percents, kpercents)
+        row = build_contig_row(vid, id_to_name.get(vid, vid), result, n_min, percents, kpercents)
         print("\t".join(row), file=out_fh)
 
     # Virus-level rows (only if 2-column list provided)
@@ -619,7 +840,7 @@ def main():
             virus_mean_all = (total_depth_all / virus_len) if virus_len > 0 else 0.0
             virus_breadth_gt0 = 1.0 - (pooled.get(0, 0) / virus_len if virus_len > 0 else 1.0)
 
-            virus_frac_ge, virus_mean_ge, virus_median_ge = mean_median_depth_ge_n(pooled, args.n_min)
+            virus_frac_ge, virus_mean_ge, virus_median_ge = mean_median_depth_ge_n(pooled, n_min)
 
             # Best contig within this virus group (detection-friendly)
             best_vid = max(vids, key=lambda x: contig_stats[x]["mapped_per_bp"])
@@ -657,8 +878,7 @@ def main():
 
             print("\t".join(row), file=out_fh)
 
-    if out_fh is not sys.stdout:
-        out_fh.close()
+    out_fh.close()
     bam.close()
 
 
