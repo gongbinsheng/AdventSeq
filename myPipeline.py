@@ -1691,10 +1691,17 @@ class Pipeline:
         self.batch[step_id].extend(batch)
 
 
-    def ViraQuant(self, virus_list=None, top_n=10, force=False):
+    def ViraQuant(self, virus_list=None, top_n=10, scan_by=None, force=False):
         batch = []
+        surfix = ""
+        if scan_by:
+            surfix = "_scan"
+        elif virus_list:
+            surfix = ""
+        else:
+            surfix = f"_top{top_n}"
         fn_name = inspect.currentframe().f_code.co_name  # get the name of the function
-        step_id = self.__current_step_id + "|" + fn_name
+        step_id = self.__current_step_id + "|" + f"{fn_name}{surfix}"
         if not virus_list:
             step_id = step_id + f"_top{top_n}"
         batch.append(f'{"#" * (len(step_id) + 8)}\n')
@@ -1703,14 +1710,16 @@ class Pipeline:
         batch.append('conda activate %s\n\n' % self.envs4steps[fn_name])
         self.required_conda_envs.add(self.envs4steps[fn_name])  # add env name to required env list
         # commands
+        
         batch.append('python /account001/bgong/workspace/AdVentSeq/ViraQuant.py \\\n')
         batch.append('    --bam "${sorted_BAM}" \\\n')
-        if virus_list is not None:
+        if scan_by:
+            batch.append(f'    --scan-by "{scan_by}" \\\n')
+        elif virus_list:
             batch.append(f'    --viruses "{virus_list}" \\\n')
-            batch.append('    --out "${sorted_BAM%.*.*}.ViraQuant.tsv"\n')
         else:
             batch.append(f'    --top-n {top_n} \\\n')
-            batch.append(f'    --out "${{sorted_BAM%.*.*}}.ViraQuant_top{top_n}.tsv"\n')
+            batch.append(f'    --out "${{sorted_BAM%.*.*}}.ViraQuant{surfix}.tsv"\n')
         # check if commands were completed successfully
         batch.append('if [ $? -ne 0 ]; then echo "Error: %s failed."; exit 1; fi\n\n' % step_id)
         batch.append('echo -e "%s\\t$(date +\'%%Y-%%m-%%d %%H:%%M:%%S\')" >> "$my_progress"\n\n' % step_id)
