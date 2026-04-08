@@ -34,11 +34,23 @@ Virus-level aggregation (when 2-col virus list is provided):
 import sys
 import pysam
 import argparse
+import operator
+import re
 
 from collections import Counter, defaultdict
 from pathlib import Path
 
 DEFAULT_PCTS = [0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
+SCAN_EXPR_RE = re.compile(
+    r"^\s*([A-Za-z_][A-Za-z0-9_]*)\s*(>=|<=|==|>|<)\s*([-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?)\s*$"
+)
+SCAN_OPERATORS = {
+    ">": operator.gt,
+    ">=": operator.ge,
+    "<": operator.lt,
+    "<=": operator.le,
+    "==": operator.eq,
+}
 
 
 def parse_percents(s: str):
@@ -246,6 +258,193 @@ def fmt(x):
     return "NA" if x is None else x
 
 
+def build_flag_filter(include_duplicates: bool, include_secondary: bool = False):
+    # Always exclude unmapped, QC-fail, and supplementary alignments.
+    flag_filter = 0x4 | 0x200 | 0x800
+    if not include_secondary:
+        flag_filter |= 0x100
+    if not include_duplicates:
+        flag_filter |= 0x400
+    return flag_filter
+
+
+def get_contig_metric_field_names(n_min: int, percents, kpercents):
+    frac_field = f"frac_ge_{n_min}"
+    mean_field = f"mean_depth_ge_{n_min}"
+    median_field = f"median_depth_ge_{n_min}"
+    pass_fields = [f"pass_k_{int(k*100)}pct_ge_{n_min}" for k in kpercents]
+    depth_fields = [f"depth_at_{int(p*100)}pct" for p in percents]
+    return frac_field, mean_field, median_field, pass_fields, depth_fields
+
+
+def get_filterable_metric_names(n_min: int, percents, kpercents):
+    frac_field, mean_field, median_field, pass_fields, depth_fields = get_contig_metric_field_names(
+        n_min, percents, kpercents
+    )
+    return {
+        "length",
+        "mapped_reads",
+        "mapped_per_bp",
+        "breadth_cov_gt0",
+        "mean_depth_all",
+        frac_field,
+        mean_field,
+        median_field,
+        *pass_fields,
+        *depth_fields,
+    }
+
+
+def parse_scan_by_expression(expr: str, valid_metric_names):
+    match = SCAN_EXPR_RE.match(expr)
+    if not match:
+        raise ValueError(
+            "Invalid --scan-by expression. Expected exactly one comparison like "
+            "'mean_depth_ge_1>=1' or 'depth_at_90pct > 5'."
+        )
+
+    metric_name, op_symbol, raw_value = match.groups()
+    if metric_name not in valid_metric_names:
+        valid = ", ".join(sorted(valid_metric_names))
+        raise ValueError(
+            f"Unknown --scan-by metric '{metric_name}'. Valid metrics for this run: {valid}"
+        )
+
+    return metric_name, op_symbol, float(raw_value)
+
+
+def passes_scan_filter(metrics, scan_filter):
+    if scan_filter is None:
+        return True
+
+    metric_name, op_symbol, threshold = scan_filter
+    value = metrics.get(metric_name)
+    if value is None:
+        return False
+    return SCAN_OPERATORS[op_symbol](value, threshold)
+
+
+def compute_contig_result(
+    bam: pysam.AlignmentFile,
+    contig: str,
+    length: int,
+    mapped_reads: dict,
+    min_mapq: int,
+    flag_filter: int,
+    max_depth: int,
+    n_min: int,
+    percents,
+    kpercents,
+):
+    mapped = mapped_reads.get(contig, 0)
+    mapped_per_bp = (mapped / length) if length > 0 else 0.0
+
+    depth_counts, mean_all, breadth_gt0 = compute_depth_hist_and_stats(
+        bam=bam,
+        contig=contig,
+        length=length,
+        min_mapq=min_mapq,
+        flag_filter=flag_filter,
+        max_depth=max_depth,
+    )
+
+    frac_ge, mean_ge, median_ge = mean_median_depth_ge_n(depth_counts, n_min)
+    best_depth90 = depth_at_fraction_positions(depth_counts, length, 0.9)
+
+    frac_field, mean_field, median_field, pass_fields, depth_fields = get_contig_metric_field_names(
+        n_min, percents, kpercents
+    )
+    metrics = {
+        "length": length,
+        "mapped_reads": mapped,
+        "mapped_per_bp": mapped_per_bp,
+        "breadth_cov_gt0": breadth_gt0,
+        "mean_depth_all": mean_all,
+        frac_field: frac_ge,
+        mean_field: mean_ge,
+        median_field: median_ge,
+    }
+    for k, field in zip(kpercents, pass_fields):
+        metrics[field] = int(frac_ge >= k)
+    for p, field in zip(percents, depth_fields):
+        metrics[field] = depth_at_fraction_positions(depth_counts, length, p)
+
+    return {
+        "depth_counts": depth_counts,
+        "length": length,
+        "mapped_reads": mapped,
+        "mapped_per_bp": mapped_per_bp,
+        "breadth_gt0": breadth_gt0,
+        "mean_all": mean_all,
+        "frac_ge": frac_ge,
+        "mean_ge": mean_ge,
+        "median_ge": median_ge,
+        "best_depth90": best_depth90,
+        "metrics": metrics,
+    }
+
+
+def build_header(n_min: int, percents, kpercents):
+    frac_field, _, _, pass_fields, depth_fields = get_contig_metric_field_names(n_min, percents, kpercents)
+    return (
+        [
+            "level",  # contig or virus
+            "virus",  # contig row: label (virus_name or contig_id); virus row: virus_name
+            "seq_id",  # contig row: contig_id; virus row: comma-separated contig_ids
+            "n_contigs",  # contig row: 1; virus row: number of contigs grouped
+            "length",
+            "mapped_reads",
+            "mapped_per_bp",
+            "breadth_cov_gt0",
+            "mean_depth_all",
+            frac_field,
+            f"mean_depth_ge_{n_min}",
+            f"median_depth_ge_{n_min}",
+        ]
+        + pass_fields
+        + depth_fields
+        + [
+            "best_contig_id",
+            "best_contig_mapped_per_bp",
+            "best_contig_depth_at_90pct",
+            f"best_contig_frac_ge_{n_min}",
+        ]
+    )
+
+
+def build_contig_row(contig: str, label: str, result, n_min: int, percents, kpercents):
+    frac_field, mean_field, median_field, pass_fields, depth_fields = get_contig_metric_field_names(
+        n_min, percents, kpercents
+    )
+    metrics = result["metrics"]
+    row = [
+        "contig",
+        label,
+        contig,
+        "1",
+        str(result["length"]),
+        str(result["mapped_reads"]),
+        f"{result['mapped_per_bp']:.6g}",
+        f"{result['breadth_gt0']:.6f}",
+        f"{result['mean_all']:.6f}",
+        f"{metrics[frac_field]:.6f}",
+        (f"{metrics[mean_field]:.6f}" if metrics[mean_field] is not None else "NA"),
+        (f"{metrics[median_field]:.6f}" if metrics[median_field] is not None else "NA"),
+    ]
+    for field in pass_fields:
+        row.append(str(metrics[field]))
+    for field in depth_fields:
+        row.append(str(metrics[field]))
+
+    row += [
+        contig,
+        f"{result['mapped_per_bp']:.6g}",
+        str(result["best_depth90"]),
+        f"{metrics[frac_field]:.6f}",
+    ]
+    return row
+
+
 def main():
     ap = argparse.ArgumentParser(
         description="Quantify virus contigs (and virus groups) from BAM using depth quantiles and breadth/threshold metrics."
@@ -266,6 +465,14 @@ def main():
         help="When --viruses is omitted, report top N contigs by mapped_reads/length. Default 10.",
     )
     ap.add_argument(
+        "--scan-by",
+        default=None,
+        help=(
+            "Full-BAM contig scan mode. Compute depth metrics for every contig, ignore --viruses and --top-n, "
+            "and report only contigs passing a single numeric comparison such as 'mean_depth_ge_1>=1'."
+        ),
+    )
+    ap.add_argument(
         "--percents",
         default=None,
         help="Quantile percents list for depth_at_P, e.g. '50,60,70,80,90,100' or '0.5,0.6,...'.",
@@ -273,7 +480,7 @@ def main():
     ap.add_argument(
         "--kpercents",
         default=None,
-        help="Breadth thresholds k% for pass_k_* flags. Default: same as --percents.",
+        help="Breadth thresholds k%% for pass_k_* flags. Default: same as --percents.",
     )
     ap.add_argument("--n-min", type=int, default=1, help="n in 'depth >= n reads'. Default 1.")
     ap.add_argument("--min-mapq", type=int, default=0, help="Minimum MAPQ for pileup. Default 0.")
@@ -293,6 +500,19 @@ def main():
 
     percents = parse_percents(args.percents) if args.percents else DEFAULT_PCTS
     kpercents = parse_percents(args.kpercents) if args.kpercents else list(percents)
+    scan_mode = args.scan_by is not None
+    try:
+        scan_filter = (
+            parse_scan_by_expression(
+                args.scan_by,
+                get_filterable_metric_names(args.n_min, percents, kpercents),
+            )
+            if scan_mode
+            else None
+        )
+    except ValueError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        sys.exit(2)
 
     bam = pysam.AlignmentFile(args.bam, "rb")
     lengths = dict(zip(bam.references, bam.lengths))
@@ -300,29 +520,35 @@ def main():
     idx_table = get_idxstats_table(args.bam)
     mapped_reads = {c: v[1] for c, v in idx_table.items() if c != "*"}
 
-    # Filter flags: unmapped, secondary, QCfail, supplementary; and duplicates unless included
-    flag_filter = 0x4 | 0x100 | 0x200 | 0x800
-    if not args.include_duplicates:
-        flag_filter |= 0x400
+    flag_filter = build_flag_filter(
+        include_duplicates=args.include_duplicates,
+        include_secondary=scan_mode,
+    )
 
-    virus_ids, id_to_name, has_two_cols, name_to_ids = load_virus_map_and_grouping(args.viruses)
-
-    if virus_ids is None:
-        if args.top_n <= 0:
-            print("ERROR: --top-n must be >= 1 when --viruses is omitted.", file=sys.stderr)
-            sys.exit(2)
-        virus_ids = choose_top_contigs_by_norm_mapped(lengths, mapped_reads, args.top_n)
+    if scan_mode:
+        virus_ids = [c for c, length in lengths.items() if c != "*" and length > 0]
         id_to_name = {vid: vid for vid in virus_ids}
         has_two_cols = False
         name_to_ids = None
+    else:
+        virus_ids, id_to_name, has_two_cols, name_to_ids = load_virus_map_and_grouping(args.viruses)
 
-    # Validate contigs exist
-    missing = [v for v in virus_ids if v not in lengths]
-    if missing:
-        print("WARNING: contigs not in BAM header will be skipped:", file=sys.stderr)
-        for v in missing:
-            print(f"  {v}", file=sys.stderr)
-        virus_ids = [v for v in virus_ids if v in lengths]
+        if virus_ids is None:
+            if args.top_n <= 0:
+                print("ERROR: --top-n must be >= 1 when --viruses is omitted.", file=sys.stderr)
+                sys.exit(2)
+            virus_ids = choose_top_contigs_by_norm_mapped(lengths, mapped_reads, args.top_n)
+            id_to_name = {vid: vid for vid in virus_ids}
+            has_two_cols = False
+            name_to_ids = None
+
+        # Validate contigs exist
+        missing = [v for v in virus_ids if v not in lengths]
+        if missing:
+            print("WARNING: contigs not in BAM header will be skipped:", file=sys.stderr)
+            for v in missing:
+                print(f"  {v}", file=sys.stderr)
+            virus_ids = [v for v in virus_ids if v in lengths]
 
     if args.out == "-":
         out_fh = sys.stdout
@@ -331,32 +557,7 @@ def main():
         print(f"Writing output to\n  {out_path}", file=sys.stderr)
         out_fh = open(out_path, "w", encoding="utf-8")
 
-    # TSV header
-    header = (
-        [
-            "level",  # contig or virus
-            "virus",  # contig row: label (virus_name or contig_id); virus row: virus_name
-            "seq_id",  # contig row: contig_id; virus row: comma-separated contig_ids
-            "n_contigs",  # contig row: 1; virus row: number of contigs grouped
-            "length",
-            "mapped_reads",
-            "mapped_per_bp",
-            "breadth_cov_gt0",
-            "mean_depth_all",
-            f"frac_ge_{args.n_min}",
-            f"mean_depth_ge_{args.n_min}",
-            f"median_depth_ge_{args.n_min}",
-        ]
-        + [f"pass_k_{int(k*100)}pct_ge_{args.n_min}" for k in kpercents]
-        + [f"depth_at_{int(p*100)}pct" for p in percents]
-        + [
-            # Added to TSV per your request
-            "best_contig_id",
-            "best_contig_mapped_per_bp",
-            "best_contig_depth_at_90pct",
-            f"best_contig_frac_ge_{args.n_min}",
-        ]
-    )
+    header = build_header(args.n_min, percents, kpercents)
     print("\t".join(header), file=out_fh)
 
     # Collect per-contig depth histograms and stats to support virus-level pooling
@@ -364,68 +565,42 @@ def main():
     contig_stats = {}  # vid -> dict
 
     for vid in virus_ids:
-        L = lengths[vid]
-        m = mapped_reads.get(vid, 0)
-        mapped_per_bp = (m / L) if L > 0 else 0.0
-
-        dcounts, mean_all, breadth_gt0 = compute_depth_hist_and_stats(
+        result = compute_contig_result(
             bam=bam,
             contig=vid,
-            length=L,
+            length=lengths[vid],
+            mapped_reads=mapped_reads,
             min_mapq=args.min_mapq,
             flag_filter=flag_filter,
             max_depth=args.max_depth,
+            n_min=args.n_min,
+            percents=percents,
+            kpercents=kpercents,
         )
 
-        frac_ge, mean_ge, median_ge = mean_median_depth_ge_n(dcounts, args.n_min)
+        if scan_mode:
+            if passes_scan_filter(result["metrics"], scan_filter):
+                row = build_contig_row(vid, vid, result, args.n_min, percents, kpercents)
+                print("\t".join(row), file=out_fh)
+            continue
 
-        contig_depth_counts[vid] = dcounts
+        contig_depth_counts[vid] = result["depth_counts"]
         contig_stats[vid] = {
-            "L": L,
-            "m": m,
-            "mapped_per_bp": mapped_per_bp,
-            "breadth_gt0": breadth_gt0,
-            "mean_all": mean_all,
-            "frac_ge": frac_ge,
-            "mean_ge": mean_ge,
-            "median_ge": median_ge,
+            "L": result["length"],
+            "m": result["mapped_reads"],
+            "mapped_per_bp": result["mapped_per_bp"],
+            "breadth_gt0": result["breadth_gt0"],
+            "mean_all": result["mean_all"],
+            "frac_ge": result["frac_ge"],
+            "mean_ge": result["mean_ge"],
+            "median_ge": result["median_ge"],
         }
 
-        label = id_to_name.get(vid, vid)
-
-        # contig row: best_contig_* = self (makes TSV rectangular)
-        best_depth90 = depth_at_fraction_positions(dcounts, L, 0.9)
-
-        row = [
-            "contig",
-            label,
-            vid,
-            "1",
-            str(L),
-            str(m),
-            f"{mapped_per_bp:.6g}",
-            f"{breadth_gt0:.6f}",
-            f"{mean_all:.6f}",
-            f"{frac_ge:.6f}",
-            (f"{mean_ge:.6f}" if mean_ge is not None else "NA"),
-            (f"{median_ge:.6f}" if median_ge is not None else "NA"),
-        ]
-        for k in kpercents:
-            row.append("1" if frac_ge >= k else "0")
-        for p in percents:
-            row.append(str(depth_at_fraction_positions(dcounts, L, p)))
-
-        row += [
-            vid,
-            f"{mapped_per_bp:.6g}",
-            str(best_depth90),
-            f"{frac_ge:.6f}",
-        ]
-
+        row = build_contig_row(vid, id_to_name.get(vid, vid), result, args.n_min, percents, kpercents)
         print("\t".join(row), file=out_fh)
 
     # Virus-level rows (only if 2-column list provided)
-    if has_two_cols and name_to_ids:
+    if not scan_mode and has_two_cols and name_to_ids:
         for vname, vids in name_to_ids.items():
             vids = [v for v in vids if v in contig_stats]
             if not vids:

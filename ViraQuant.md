@@ -61,6 +61,12 @@ Or:
 If `--viruses` is not provided, the script automatically reports the top N contigs ranked by:
 `mapped_reads / contig_length` (default N=10; adjust with --top-n).
 
+If `--scan-by` is provided, the script switches to a full-BAM contig scan:
+- it computes depth metrics for every contig in the BAM header
+- it ignores `--viruses` and `--top-n`
+- it reports only contigs passing the `--scan-by` comparison
+- it includes secondary alignments in depth calculations for scan mode only
+
 ## Output (TSV)
 One row per contig, plus optional aggregated virus rows.
 Key output columns:
@@ -98,6 +104,27 @@ For chosen --n-min (default 1):
 - `median_depth_ge_1`: median depth among positions with depth ≥ 1
 - `pass_k_80pct_ge_1`: 1 if frac_ge_1 >= 0.80, else 0
 
+### Full-BAM scan mode (`--scan-by`)
+`--scan-by` accepts exactly one numeric comparison:
+
+```bash
+--scan-by 'mean_depth_ge_1>=1'
+--scan-by 'frac_ge_1 >= 0.9'
+--scan-by 'depth_at_90pct>5'
+--scan-by 'pass_k_90pct_ge_1==1'
+```
+
+Rules:
+- the left-hand side must be an existing numeric contig metric for the current run
+- supported operators are `>`, `>=`, `<`, `<=`, `==`
+- dynamic metric names depend on `--n-min`, `--percents`, and `--kpercents`
+- scan mode outputs contig rows only; virus-group rows are skipped
+
+This means:
+- `mean_depth_ge_1>=1` is valid only when `--n-min 1`
+- `depth_at_90pct>=3` is valid only if `90` is included in `--percents`
+- `pass_k_90pct_ge_1==1` is valid only if `90` is included in `--kpercents`
+
 ### Virus-level aggregation details (when 2-col virus list is used)
 Virus rows are computed by pooling per-base depth histograms across member contigs (position-weighted), i.e. equivalent to concatenating contigs end-to-end.
 
@@ -120,7 +147,7 @@ To support detection vs quantification:
 
 ### 1) Analyze a virus list (with virus-level grouping)
 ```bash
-python ViraQuant.py \
+uv run ViraQuant.py \
   --bam sample.sorted.bam \
   --viruses virus_list.txt \
   --out virus_metrics.tsv
@@ -128,7 +155,7 @@ python ViraQuant.py \
 
 ### 2) Analyze a single contig
 ```bash
-python ViraQuant.py \
+uv run ViraQuant.py \
   --bam sample.sorted.bam \
   --viruses NC_045512.2 \
   --out sars2_metrics.tsv
@@ -136,19 +163,23 @@ python ViraQuant.py \
 
 ### 3) No virus list: report top 10 contigs by mapped_reads/length
 ```bash
-python ViraQuant.py \
+uv run ViraQuant.py \
   --bam sample.sorted.bam \
-  --viruses virus_list.txt \
-  --percents 80,90,95,100 \
-  --kpercents 70,80,90 \
-  --n-min 3 \
-  --min-mapq 20 \
-  --out virus_metrics.tsv
+  --top-n 10 \
+  --out top10_metrics.tsv
 ```
 
-### 4) Customize quantiles and breadth thresholds; require depth ≥ 3
+### 4) Full-BAM scan: report contigs passing a depth filter
 ```bash
-python ViraQuant.py \
+uv run ViraQuant.py \
+  --bam sample.sorted.bam \
+  --scan-by 'mean_depth_ge_1>=1' \
+  --out passing_contigs.tsv
+```
+
+### 5) Customize quantiles and breadth thresholds; require depth ≥ 3
+```bash
+uv run ViraQuant.py \
   --bam sample.sorted.bam \
   --viruses virus_list.txt \
   --percents 80,90,95,100 \
@@ -162,6 +193,8 @@ python ViraQuant.py \
 
 - `mapped_reads` comes from idxstats and can be influenced by multi-mapping across highly similar references (common in RVDB).
   - Depth-based metrics are typically more robust than raw mapped read totals.
+- In `--scan-by` mode, depth calculations include secondary alignments but still exclude supplementary alignments.
+  - `mapped_reads` remains the idxstats value, so scan-mode depth can be more permissive than the read-count column.
 - Virus-level pooling assumes contigs sharing the same virus name are reasonably comparable (segments, strains, partials).
   - If contigs represent many different strains, pooled virus-level metrics describe “support for the virus name” rather than a single strain.
 
@@ -176,7 +209,6 @@ For quantification-like interpretation:
   - `best_contig_frac_ge_n`
 ---
 If you want the virus-level “best contig” to be chosen by something *other than* `mapped_per_bp` (e.g., highest `depth_at_90pct` or highest `frac_ge_n`), tell me your preference and I’ll swap the ranking key.
-
 
 
 
