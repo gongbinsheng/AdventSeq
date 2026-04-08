@@ -1716,7 +1716,7 @@ class Pipeline:
             batch.append(f'    --viruses "{virus_list}" \\\n')
         else:
             batch.append(f'    --top-n {top_n} \\\n')
-            batch.append(f'    --out "${{sorted_BAM%.*.*}}.ViraQuant{surfix}.tsv"\n')
+        batch.append(f'    --out "${{sorted_BAM%.*.*}}.ViraQuant{surfix}.tsv"\n')
         # check if commands were completed successfully
         batch.append('if [ $? -ne 0 ]; then echo "Error: %s failed."; exit 1; fi\n\n' % step_id)
         batch.append('echo -e "%s\\t$(date +\'%%Y-%%m-%%d %%H:%%M:%%S\')" >> "$my_progress"\n\n' % step_id)
