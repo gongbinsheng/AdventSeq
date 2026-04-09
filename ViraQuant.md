@@ -15,14 +15,15 @@ Output is a **single TSV** with a `level` column (`contig` or `virus`).
 
 - Python 3.12+
 - `pysam`
+- `uv` is recommended for running the script in this repository
 - Input BAM must be:
   - coordinate-sorted
   - indexed (`.bai` present)
 
-Install `pysam` (example):
+Run examples in this repo with `uv`:
 
 ```bash
-pip install pysam
+uv run python ViraQuant.py --help
 ```
 
 ## Inputs
@@ -67,10 +68,31 @@ If `--scan-by` is provided, the script switches to a full-BAM contig scan:
 - it reports only contigs passing the `--scan-by` comparison
 - it includes secondary alignments in depth calculations for scan mode only
 - it auto-adjusts `--n-min`, `--percents`, and `--kpercents` from the scan metric name when needed
+- it can emit plain stderr progress messages with `--progress-every`
 
 `--out` is required. Every run writes:
 - a TSV at `--out`
 - a companion YAML file with the same stem, e.g. `virus_metrics.tsv` plus `virus_metrics.yml`
+
+## Runtime logging
+
+ViraQuant writes the TSV to `--out` and writes human-readable run messages to `stderr`, which makes it convenient to watch in an HPC job log.
+
+Progress logging behavior:
+- start line with the number of contigs queued
+- periodic checkpoint lines every `--progress-every N` contigs
+- final completion line with elapsed time
+- in scan mode, periodic lines also report how many contigs have passed the filter so far
+
+The default is `--progress-every 100`. Set `--progress-every 0` to disable periodic progress updates.
+
+Example stderr lines:
+
+```text
+Starting scan mode: 12345 contigs queued, progress updates every 200 contigs.
+PROGRESS: processed 400/12345 contigs (3.2%), current=contig_X, elapsed=00:02:41, rate=2.5 contigs/s, passed=31
+Finished scan mode: processed 12345/12345 contigs, wrote 842 passing rows, elapsed=01:14:33.
+```
 
 ## Output (TSV)
 One row per contig, plus optional aggregated virus rows.
@@ -188,6 +210,7 @@ uv run ViraQuant.py \
 uv run ViraQuant.py \
   --bam sample.sorted.bam \
   --scan-by 'mean_depth_ge_2>=2' \
+  --progress-every 200 \
   --out passing_contigs.tsv
 ```
 
@@ -202,7 +225,16 @@ uv run ViraQuant.py \
 
 This run uses effective `--percents 80,85,90` and records that in `scan_depth85.yml`.
 
-### 6) Customize quantiles and breadth thresholds; require depth ≥ 3
+### 6) Watch progress in an HPC log without a progress bar
+```bash
+uv run ViraQuant.py \
+  --bam sample.sorted.bam \
+  --scan-by 'mapped_per_bp>=0.01' \
+  --progress-every 500 \
+  --out scan.tsv
+```
+
+### 7) Customize quantiles and breadth thresholds; require depth ≥ 3
 ```bash
 uv run ViraQuant.py \
   --bam sample.sorted.bam \
@@ -218,6 +250,8 @@ uv run ViraQuant.py \
 
 - `mapped_reads` comes from idxstats and can be influenced by multi-mapping across highly similar references (common in RVDB).
   - Depth-based metrics are typically more robust than raw mapped read totals.
+- Scan mode avoids pileup work for contigs with zero `mapped_reads`.
+- Scan filters on `length`, `mapped_reads`, or `mapped_per_bp` can be applied before depth calculation, which can make large scans noticeably faster.
 - In `--scan-by` mode, depth calculations include secondary alignments but still exclude supplementary alignments.
   - `mapped_reads` remains the idxstats value, so scan-mode depth can be more permissive than the read-count column.
 - The YAML sidecar stores only the arguments actually used for the run.
@@ -235,7 +269,6 @@ For quantification-like interpretation:
   - `best_contig_frac_ge_n`
 ---
 If you want the virus-level “best contig” to be chosen by something *other than* `mapped_per_bp` (e.g., highest `depth_at_90pct` or highest `frac_ge_n`), tell me your preference and I’ll swap the ranking key.
-
 
 
 

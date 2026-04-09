@@ -37,6 +37,7 @@ import argparse
 import json
 import operator
 import re
+import time
 
 from collections import Counter, defaultdict
 from pathlib import Path
@@ -61,6 +62,11 @@ STATIC_FILTERABLE_METRICS = {
     "mapped_per_bp",
     "breadth_cov_gt0",
     "mean_depth_all",
+}
+IDXSTATS_ONLY_SCAN_METRICS = {
+    "length",
+    "mapped_reads",
+    "mapped_per_bp",
 }
 
 
@@ -143,19 +149,8 @@ def depth_at_fraction_positions(depth_counts: Counter, genome_len: int, frac: fl
     Returns d such that at least frac of positions have depth >= d.
     Equivalent to (1-frac) quantile INCLUDING zeros.
     """
-    if genome_len <= 0:
-        return 0
-
-    below_target = int((1.0 - frac) * genome_len)
-
-    depths_sorted = sorted(depth_counts.items(), key=lambda kv: kv[0])
-    cum_below = 0
-    for depth, npos in depths_sorted:
-        cum_below += npos
-        if cum_below > below_target:
-            return depth
-
-    return depths_sorted[-1][0] if depths_sorted else 0
+    depths_sorted = sorted(ensure_complete_depth_counts(depth_counts, genome_len).items())
+    return depth_at_fraction_positions_many(depths_sorted, genome_len, [frac])[frac]
 
 
 def get_idxstats_table(bam_path: str):
@@ -189,7 +184,46 @@ def choose_top_contigs_by_norm_mapped(lengths, mapped_reads, top_n: int):
     return [c for _, _, _, c in scored[: max(0, top_n)]]
 
 
-def compute_depth_hist_and_stats(
+def ensure_complete_depth_counts(depth_counts: Counter, genome_len: int):
+    observed_positions = sum(depth_counts.values())
+    if observed_positions >= genome_len:
+        return depth_counts
+
+    complete = Counter(depth_counts)
+    complete[0] += max(0, genome_len - observed_positions)
+    return complete
+
+
+def depth_at_fraction_positions_many(depths_sorted, genome_len: int, fracs):
+    if not fracs:
+        return {}
+    if genome_len <= 0:
+        return {frac: 0 for frac in fracs}
+
+    requests = sorted(
+        ((int((1.0 - frac) * genome_len), frac) for frac in fracs),
+        key=lambda item: item[0],
+    )
+
+    last_depth = depths_sorted[-1][0] if depths_sorted else 0
+    results = {}
+    cum_below = 0
+    req_idx = 0
+
+    for depth, npos in depths_sorted:
+        cum_below += npos
+        while req_idx < len(requests) and cum_below > requests[req_idx][0]:
+            results[requests[req_idx][1]] = depth
+            req_idx += 1
+
+    while req_idx < len(requests):
+        results[requests[req_idx][1]] = last_depth
+        req_idx += 1
+
+    return results
+
+
+def compute_depth_histogram(
     bam: pysam.AlignmentFile,
     contig: str,
     length: int,
@@ -197,11 +231,8 @@ def compute_depth_hist_and_stats(
     flag_filter: int,
     max_depth: int,
 ):
-    """
-    Build depth histogram for all positions (including zeros) plus mean depth and breadth>0.
-    """
+    """Build depth histogram for covered positions; zeros are filled in later."""
     depth_counts = Counter()
-    covered_positions = 0
 
     for col in bam.pileup(
         contig=contig,
@@ -215,62 +246,103 @@ def compute_depth_hist_and_stats(
     ):
         d = col.nsegments
         depth_counts[d] += 1
-        covered_positions += 1
 
-    zeros = max(0, length - covered_positions)
-    if zeros:
-        depth_counts[0] += zeros
-
-    total_depth = sum(depth * npos for depth, npos in depth_counts.items())
-    mean_depth = (total_depth / length) if length > 0 else 0.0
-    breadth = 1.0 - (depth_counts.get(0, 0) / length if length > 0 else 1.0)
-
-    return depth_counts, mean_depth, breadth
+    return ensure_complete_depth_counts(depth_counts, length)
 
 
-def mean_median_depth_ge_n(depth_counts: Counter, n_min: int):
-    """
-    Compute frac_ge_n, mean_ge_n, median_ge_n over positions with depth >= n_min.
-
-    Median computed exactly from histogram (no per-base array).
-    Returns:
-      frac_ge, mean_ge (float or None), median_ge (float or None)
-    """
+def summarize_depth_counts(depth_counts: Counter, genome_len: int, n_min: int, percents):
+    depth_counts = ensure_complete_depth_counts(depth_counts, genome_len)
     total_positions = sum(depth_counts.values())
     if total_positions == 0:
-        return 0.0, None, None
+        depth_by_percent = {p: 0 for p in percents}
+        return {
+            "depth_counts": depth_counts,
+            "mean_all": 0.0,
+            "breadth_gt0": 0.0,
+            "frac_ge": 0.0,
+            "mean_ge": None,
+            "median_ge": None,
+            "depth_by_percent": depth_by_percent,
+        }
 
-    ge_counts = [(d, c) for d, c in depth_counts.items() if d >= n_min]
-    ge_npos = sum(c for _, c in ge_counts)
-    frac_ge = ge_npos / total_positions if total_positions else 0.0
+    depths_sorted = sorted(depth_counts.items())
+    total_depth_all = 0
+    ge_npos = 0
+    total_depth_ge = 0
+
+    for depth, npos in depths_sorted:
+        total_depth_all += depth * npos
+        if depth >= n_min:
+            ge_npos += npos
+            total_depth_ge += depth * npos
+
+    mean_all = total_depth_all / genome_len if genome_len > 0 else 0.0
+    breadth_gt0 = 1.0 - (depth_counts.get(0, 0) / genome_len if genome_len > 0 else 1.0)
+    frac_ge = ge_npos / total_positions
+
     if ge_npos == 0:
-        return frac_ge, None, None
+        mean_ge = None
+        median_ge = None
+    else:
+        mean_ge = total_depth_ge / ge_npos
+        mid1 = (ge_npos - 1) // 2
+        mid2 = ge_npos // 2
+        cum = 0
+        med1 = med2 = None
+        for depth, npos in depths_sorted:
+            if depth < n_min:
+                continue
+            cum += npos
+            if med1 is None and mid1 < cum:
+                med1 = depth
+            if med2 is None and mid2 < cum:
+                med2 = depth
+            if med1 is not None and med2 is not None:
+                break
+        median_ge = (med1 + med2) / 2.0 if med1 is not None else None
 
-    total_depth_ge = sum(d * c for d, c in ge_counts)
-    mean_ge = total_depth_ge / ge_npos
-
-    # median over ge positions
-    mid1 = (ge_npos - 1) // 2
-    mid2 = ge_npos // 2
-    ge_counts_sorted = sorted(ge_counts, key=lambda x: x[0])
-
-    cum = 0
-    med1 = med2 = None
-    for d, c in ge_counts_sorted:
-        cum += c
-        if med1 is None and mid1 < cum:
-            med1 = d
-        if med2 is None and mid2 < cum:
-            med2 = d
-        if med1 is not None and med2 is not None:
-            break
-
-    median_ge = (med1 + med2) / 2.0 if med1 is not None else None
-    return frac_ge, mean_ge, median_ge
+    depth_by_percent = depth_at_fraction_positions_many(depths_sorted, genome_len, percents)
+    return {
+        "depth_counts": depth_counts,
+        "mean_all": mean_all,
+        "breadth_gt0": breadth_gt0,
+        "frac_ge": frac_ge,
+        "mean_ge": mean_ge,
+        "median_ge": median_ge,
+        "depth_by_percent": depth_by_percent,
+    }
 
 
 def fmt(x):
     return "NA" if x is None else x
+
+
+def format_elapsed(seconds: float) -> str:
+    total_seconds = max(0, int(round(seconds)))
+    hours, remainder = divmod(total_seconds, 3600)
+    minutes, secs = divmod(remainder, 60)
+    return f"{hours:02d}:{minutes:02d}:{secs:02d}"
+
+
+def print_progress_update(
+    processed: int,
+    total: int,
+    current_contig: str,
+    started_at: float,
+    scan_mode: bool,
+    passed_scan: int = 0,
+):
+    elapsed = time.monotonic() - started_at
+    pct = (processed / total * 100.0) if total > 0 else 100.0
+    rate = (processed / elapsed) if elapsed > 0 else 0.0
+    message = (
+        f"PROGRESS: processed {processed}/{total} contigs "
+        f"({pct:.1f}%), current={current_contig}, elapsed={format_elapsed(elapsed)}, "
+        f"rate={rate:.1f} contigs/s"
+    )
+    if scan_mode:
+        message += f", passed={passed_scan}"
+    print(message, file=sys.stderr)
 
 
 def option_was_provided(argv, option: str):
@@ -546,6 +618,58 @@ def passes_scan_filter(metrics, scan_filter):
     return SCAN_OPERATORS[op_symbol](value, threshold)
 
 
+def build_contig_result_from_depth_counts(
+    contig: str,
+    length: int,
+    mapped_reads: dict,
+    depth_counts: Counter,
+    n_min: int,
+    percents,
+    kpercents,
+):
+    mapped = mapped_reads.get(contig, 0)
+    mapped_per_bp = (mapped / length) if length > 0 else 0.0
+
+    summary = summarize_depth_counts(
+        depth_counts=depth_counts,
+        genome_len=length,
+        n_min=n_min,
+        percents=unique_sorted([*percents, 0.9]),
+    )
+
+    frac_field, mean_field, median_field, pass_fields, depth_fields = get_contig_metric_field_names(
+        n_min, percents, kpercents
+    )
+    metrics = {
+        "length": length,
+        "mapped_reads": mapped,
+        "mapped_per_bp": mapped_per_bp,
+        "breadth_cov_gt0": summary["breadth_gt0"],
+        "mean_depth_all": summary["mean_all"],
+        frac_field: summary["frac_ge"],
+        mean_field: summary["mean_ge"],
+        median_field: summary["median_ge"],
+    }
+    for k, field in zip(kpercents, pass_fields):
+        metrics[field] = int(summary["frac_ge"] >= k)
+    for p, field in zip(percents, depth_fields):
+        metrics[field] = summary["depth_by_percent"][p]
+
+    return {
+        "depth_counts": summary["depth_counts"],
+        "length": length,
+        "mapped_reads": mapped,
+        "mapped_per_bp": mapped_per_bp,
+        "breadth_gt0": summary["breadth_gt0"],
+        "mean_all": summary["mean_all"],
+        "frac_ge": summary["frac_ge"],
+        "mean_ge": summary["mean_ge"],
+        "median_ge": summary["median_ge"],
+        "best_depth90": summary["depth_by_percent"][0.9],
+        "metrics": metrics,
+    }
+
+
 def compute_contig_result(
     bam: pysam.AlignmentFile,
     contig: str,
@@ -559,51 +683,27 @@ def compute_contig_result(
     kpercents,
 ):
     mapped = mapped_reads.get(contig, 0)
-    mapped_per_bp = (mapped / length) if length > 0 else 0.0
+    if mapped == 0:
+        depth_counts = Counter({0: length}) if length > 0 else Counter()
+    else:
+        depth_counts = compute_depth_histogram(
+            bam=bam,
+            contig=contig,
+            length=length,
+            min_mapq=min_mapq,
+            flag_filter=flag_filter,
+            max_depth=max_depth,
+        )
 
-    depth_counts, mean_all, breadth_gt0 = compute_depth_hist_and_stats(
-        bam=bam,
+    return build_contig_result_from_depth_counts(
         contig=contig,
         length=length,
-        min_mapq=min_mapq,
-        flag_filter=flag_filter,
-        max_depth=max_depth,
+        mapped_reads=mapped_reads,
+        depth_counts=depth_counts,
+        n_min=n_min,
+        percents=percents,
+        kpercents=kpercents,
     )
-
-    frac_ge, mean_ge, median_ge = mean_median_depth_ge_n(depth_counts, n_min)
-    best_depth90 = depth_at_fraction_positions(depth_counts, length, 0.9)
-
-    frac_field, mean_field, median_field, pass_fields, depth_fields = get_contig_metric_field_names(
-        n_min, percents, kpercents
-    )
-    metrics = {
-        "length": length,
-        "mapped_reads": mapped,
-        "mapped_per_bp": mapped_per_bp,
-        "breadth_cov_gt0": breadth_gt0,
-        "mean_depth_all": mean_all,
-        frac_field: frac_ge,
-        mean_field: mean_ge,
-        median_field: median_ge,
-    }
-    for k, field in zip(kpercents, pass_fields):
-        metrics[field] = int(frac_ge >= k)
-    for p, field in zip(percents, depth_fields):
-        metrics[field] = depth_at_fraction_positions(depth_counts, length, p)
-
-    return {
-        "depth_counts": depth_counts,
-        "length": length,
-        "mapped_reads": mapped,
-        "mapped_per_bp": mapped_per_bp,
-        "breadth_gt0": breadth_gt0,
-        "mean_all": mean_all,
-        "frac_ge": frac_ge,
-        "mean_ge": mean_ge,
-        "median_ge": median_ge,
-        "best_depth90": best_depth90,
-        "metrics": metrics,
-    }
 
 
 def build_header(n_min: int, percents, kpercents):
@@ -713,6 +813,15 @@ def main():
         action="store_true",
         help="Include PCR/optical duplicates. Default filters duplicates.",
     )
+    ap.add_argument(
+        "--progress-every",
+        type=int,
+        default=100,
+        help=(
+            "Write a plain stderr progress update every N contigs processed. "
+            "Set to 0 to disable periodic updates. Default 100."
+        ),
+    )
     ap.add_argument("--max-depth", type=int, default=1000000, help="Pileup max depth. Default 1,000,000.")
     ap.add_argument("--out", required=True, help="Output TSV path. A companion .yml file is always written.")
 
@@ -723,6 +832,9 @@ def main():
         sys.exit(2)
     if args.out == "-":
         print("ERROR: --out must be a real file path because a companion .yml file is always written.", file=sys.stderr)
+        sys.exit(2)
+    if args.progress_every < 0:
+        print("ERROR: --progress-every must be >= 0", file=sys.stderr)
         sys.exit(2)
 
     scan_mode = args.scan_by is not None
@@ -783,11 +895,41 @@ def main():
     header = build_header(n_min, percents, kpercents)
     print("\t".join(header), file=out_fh)
 
+    total_contigs = len(virus_ids)
+    started_at = time.monotonic()
+    processed_contigs = 0
+    passed_scan = 0
+    mode_label = "scan mode" if scan_mode else "report mode"
+    print(
+        f"Starting {mode_label}: {total_contigs} contigs queued, progress updates every "
+        f"{args.progress_every if args.progress_every > 0 else 'disabled'} contigs.",
+        file=sys.stderr,
+    )
+
     # Collect per-contig depth histograms and stats to support virus-level pooling
     contig_depth_counts = {}  # vid -> Counter(depth -> npos)
     contig_stats = {}  # vid -> dict
 
     for vid in virus_ids:
+        if scan_mode and scan_filter[0] in IDXSTATS_ONLY_SCAN_METRICS:
+            static_metrics = {
+                "length": lengths[vid],
+                "mapped_reads": mapped_reads.get(vid, 0),
+                "mapped_per_bp": (mapped_reads.get(vid, 0) / lengths[vid]) if lengths[vid] > 0 else 0.0,
+            }
+            if not passes_scan_filter(static_metrics, scan_filter):
+                processed_contigs += 1
+                if args.progress_every > 0 and processed_contigs % args.progress_every == 0:
+                    print_progress_update(
+                        processed=processed_contigs,
+                        total=total_contigs,
+                        current_contig=vid,
+                        started_at=started_at,
+                        scan_mode=True,
+                        passed_scan=passed_scan,
+                    )
+                continue
+
         result = compute_contig_result(
             bam=bam,
             contig=vid,
@@ -805,6 +947,17 @@ def main():
             if passes_scan_filter(result["metrics"], scan_filter):
                 row = build_contig_row(vid, vid, result, n_min, percents, kpercents)
                 print("\t".join(row), file=out_fh)
+                passed_scan += 1
+            processed_contigs += 1
+            if args.progress_every > 0 and processed_contigs % args.progress_every == 0:
+                print_progress_update(
+                    processed=processed_contigs,
+                    total=total_contigs,
+                    current_contig=vid,
+                    started_at=started_at,
+                    scan_mode=True,
+                    passed_scan=passed_scan,
+                )
             continue
 
         contig_depth_counts[vid] = result["depth_counts"]
@@ -817,10 +970,20 @@ def main():
             "frac_ge": result["frac_ge"],
             "mean_ge": result["mean_ge"],
             "median_ge": result["median_ge"],
+            "best_depth90": result["best_depth90"],
         }
 
         row = build_contig_row(vid, id_to_name.get(vid, vid), result, n_min, percents, kpercents)
         print("\t".join(row), file=out_fh)
+        processed_contigs += 1
+        if args.progress_every > 0 and processed_contigs % args.progress_every == 0:
+            print_progress_update(
+                processed=processed_contigs,
+                total=total_contigs,
+                current_contig=vid,
+                started_at=started_at,
+                scan_mode=False,
+            )
 
     # Virus-level rows (only if 2-column list provided)
     if not scan_mode and has_two_cols and name_to_ids:
@@ -838,18 +1001,17 @@ def main():
             for v in vids:
                 pooled.update(contig_depth_counts[v])
 
-            total_depth_all = sum(d * c for d, c in pooled.items())
-            virus_mean_all = (total_depth_all / virus_len) if virus_len > 0 else 0.0
-            virus_breadth_gt0 = 1.0 - (pooled.get(0, 0) / virus_len if virus_len > 0 else 1.0)
-
-            virus_frac_ge, virus_mean_ge, virus_median_ge = mean_median_depth_ge_n(pooled, n_min)
+            pooled_summary = summarize_depth_counts(
+                depth_counts=pooled,
+                genome_len=virus_len,
+                n_min=n_min,
+                percents=percents,
+            )
 
             # Best contig within this virus group (detection-friendly)
             best_vid = max(vids, key=lambda x: contig_stats[x]["mapped_per_bp"])
             best_mapped_per_bp = contig_stats[best_vid]["mapped_per_bp"]
-            best_depth90 = depth_at_fraction_positions(
-                contig_depth_counts[best_vid], contig_stats[best_vid]["L"], 0.9
-            )
+            best_depth90 = contig_stats[best_vid]["best_depth90"]
             best_frac_ge = contig_stats[best_vid]["frac_ge"]
 
             row = [
@@ -860,16 +1022,16 @@ def main():
                 str(virus_len),
                 str(virus_mapped),
                 f"{virus_mapped_per_bp:.6g}",
-                f"{virus_breadth_gt0:.6f}",
-                f"{virus_mean_all:.6f}",
-                f"{virus_frac_ge:.6f}",
-                (f"{virus_mean_ge:.6f}" if virus_mean_ge is not None else "NA"),
-                (f"{virus_median_ge:.6f}" if virus_median_ge is not None else "NA"),
+                f"{pooled_summary['breadth_gt0']:.6f}",
+                f"{pooled_summary['mean_all']:.6f}",
+                f"{pooled_summary['frac_ge']:.6f}",
+                (f"{pooled_summary['mean_ge']:.6f}" if pooled_summary["mean_ge"] is not None else "NA"),
+                (f"{pooled_summary['median_ge']:.6f}" if pooled_summary["median_ge"] is not None else "NA"),
             ]
             for k in kpercents:
-                row.append("1" if virus_frac_ge >= k else "0")
+                row.append("1" if pooled_summary["frac_ge"] >= k else "0")
             for p in percents:
-                row.append(str(depth_at_fraction_positions(pooled, virus_len, p)))
+                row.append(str(pooled_summary["depth_by_percent"][p]))
 
             row += [
                 best_vid,
@@ -882,6 +1044,19 @@ def main():
 
     out_fh.close()
     bam.close()
+    elapsed = time.monotonic() - started_at
+    if scan_mode:
+        print(
+            f"Finished scan mode: processed {processed_contigs}/{total_contigs} contigs, "
+            f"wrote {passed_scan} passing rows, elapsed={format_elapsed(elapsed)}.",
+            file=sys.stderr,
+        )
+    else:
+        print(
+            f"Finished report mode: processed {processed_contigs}/{total_contigs} contigs, "
+            f"elapsed={format_elapsed(elapsed)}.",
+            file=sys.stderr,
+        )
 
 
 if __name__ == "__main__":
