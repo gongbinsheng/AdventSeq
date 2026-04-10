@@ -6,6 +6,8 @@ import inspect
 from collections import defaultdict, OrderedDict
 from pathlib import Path
 
+import yaml
+
 def list_files_with_extensions(folder_path, extensions):
     file_list = []
     for item in Path(folder_path).iterdir():
@@ -85,6 +87,53 @@ def parse_gtf(file_path):
             }
             yield gtf_record
 
+
+DEFAULT_ENV_CONFIG = Path(__file__).with_name("conda_envs_for_myPipeline.yml")
+ENV_CONFIG_ENVVAR = "ADVENTSEQ_ENVS_YML"
+
+
+def load_envs4steps(config_path=None):
+    env_config_path = Path(
+        config_path or
+        os.environ.get(ENV_CONFIG_ENVVAR, DEFAULT_ENV_CONFIG)
+    )
+
+    if not env_config_path.exists():
+        example_path = env_config_path.with_suffix(env_config_path.suffix + ".example")
+        sys.exit(
+            f"Cannot find conda env config file:\n"
+            f"  {env_config_path}\n"
+            f"Create it from the example file:\n"
+            f"  {example_path}\n"
+            f"Or set {ENV_CONFIG_ENVVAR} to point to your custom YAML file.\n"
+        )
+
+    try:
+        with open(env_config_path, "r", encoding="utf-8") as handle:
+            config = yaml.safe_load(handle) or {}
+    except yaml.YAMLError as e:
+        sys.exit(f"Could not parse YAML file:\n  {env_config_path}\n{e}\n")
+    except OSError as e:
+        sys.exit(f"Could not read env config file:\n  {env_config_path}\n{e}\n")
+
+    if not isinstance(config, dict):
+        sys.exit(f"Env config must be a YAML mapping:\n  {env_config_path}\n")
+
+    step_envs = config.get("envs4steps", config)
+    if not isinstance(step_envs, dict):
+        sys.exit(f"envs4steps must be a YAML mapping:\n  {env_config_path}\n")
+
+    envs4steps = {}
+    for step_name, env_name in step_envs.items():
+        if not isinstance(step_name, str) or not isinstance(env_name, str):
+            sys.exit(
+                f"Each envs4steps entry must map a step name to a conda env string:\n"
+                f"  {env_config_path}\n"
+            )
+        envs4steps[step_name] = env_name
+
+    return envs4steps
+
 class Pipeline:
     __HPC_nodes_to_skipped = set()
     HPC_nodes_to_use = set()
@@ -109,32 +158,7 @@ class Pipeline:
     sentieon_nodes = {"ncshpc311", "ncshpc312", "ncshpc313"}
     sentieon_queque = "sentieon.q"
 
-    envs4steps = {"MultiQC":"MultiQC",
-                  "fastp":"fastp",
-                  "BWA_MEM":"BWA",
-                  "Bowtie2":"Bowtie2",
-                  "Kraken2":"Kraken2",
-                  "minimap2":"minimap2",
-                  "HISAT2":"HISAT2",
-                  "STAR":"STAR",
-                  "samtools":"samtools",
-                  "sort_SAM":"samtools",
-                  "sort_BAM": "samtools",
-                  "SAM2BAM":"samtools",
-                  "BAM_stat":"samtools",
-                  "BAM_not_in_BED":"bedtools",
-                  "unmapped_to_fastq":"samtools",
-                  "remove_read_pairs_mapped_to_host":"samtools",
-                  "SomaticSeq":"SomaticSeq",
-                  "htseq_count":"HTSeq",
-                  "featureCounts":"Subread",
-                  "depth_by_pos":"samtools",
-                  "BAM2BigWig":"deepTools",
-                  "__BAM_to_proper_paired_FASTQ_of_a_contig":"samtools",
-                  "SPAdes":"SPAdes",
-                  "taxomomic_classifier":"AdVentSeq",
-                  "ViraQuant":"AdVentSeq",
-                  "GATK4_Mutect2":"gatk"}
+    envs4steps = load_envs4steps()
 
     def add_nodes_to_be_skipped(self,more_nodes_to_be_skipped):
         self.__HPC_nodes_to_skipped = self.__HPC_nodes_to_skipped.union(more_nodes_to_be_skipped)
@@ -1759,4 +1783,3 @@ class Pipeline:
         else:
             self.is_completed = False
         self.batch[step_id].extend(batch)
-

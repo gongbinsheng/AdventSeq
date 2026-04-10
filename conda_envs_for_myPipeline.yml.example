@@ -1,0 +1,29 @@
+# Copy this file to conda_envs_for_myPipeline.yml and edit the env names for your HPC setup.
+# You can also keep a personal file elsewhere and set ADVENTSEQ_ENVS_YML=/path/to/your_envs.yml
+envs4steps:
+  MultiQC: MultiQC
+  fastp: fastp
+  BWA_MEM: BWA
+  Bowtie2: Bowtie2
+  Kraken2: Kraken2
+  minimap2: minimap2
+  HISAT2: HISAT2
+  STAR: STAR
+  samtools: samtools
+  sort_SAM: samtools
+  sort_BAM: samtools
+  SAM2BAM: samtools
+  BAM_stat: samtools
+  BAM_not_in_BED: bedtools
+  unmapped_to_fastq: samtools
+  remove_read_pairs_mapped_to_host: samtools
+  SomaticSeq: SomaticSeq
+  htseq_count: HTSeq
+  featureCounts: Subread
+  depth_by_pos: samtools
+  BAM2BigWig: deepTools
+  __BAM_to_proper_paired_FASTQ_of_a_contig: samtools
+  SPAdes: SPAdes
+  taxomomic_classifier: AdVentSeq
+  ViraQuant: AdVentSeq
+  GATK4_Mutect2: gatk
