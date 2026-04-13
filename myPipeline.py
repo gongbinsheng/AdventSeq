@@ -88,11 +88,11 @@ def parse_gtf(file_path):
             yield gtf_record
 
 
-DEFAULT_ENV_CONFIG = Path(__file__).with_name("conda_envs_for_myPipeline.yml")
+DEFAULT_ENV_CONFIG = Path(__file__).with_name("pipeline_settings.yml")
 ENV_CONFIG_ENVVAR = "ADVENTSEQ_ENVS_YML"
 
 
-def load_envs4steps(config_path=None):
+def load_pipeline_config(config_path=None):
     env_config_path = Path(
         config_path or
         os.environ.get(ENV_CONFIG_ENVVAR, DEFAULT_ENV_CONFIG)
@@ -119,20 +119,49 @@ def load_envs4steps(config_path=None):
     if not isinstance(config, dict):
         sys.exit(f"Env config must be a YAML mapping:\n  {env_config_path}\n")
 
+    return config
+
+
+def load_envs4steps(config_path=None):
+    config = load_pipeline_config(config_path)
     step_envs = config.get("envs4steps", config)
     if not isinstance(step_envs, dict):
-        sys.exit(f"envs4steps must be a YAML mapping:\n  {env_config_path}\n")
+        sys.exit(
+            f"envs4steps must be a YAML mapping.\n"
+            f"    {config_path}\n"
+        )
 
     envs4steps = {}
     for step_name, env_name in step_envs.items():
         if not isinstance(step_name, str) or not isinstance(env_name, str):
             sys.exit(
                 f"Each envs4steps entry must map a step name to a conda env string:\n"
-                f"  {env_config_path}\n"
-            )
+                f"    {config_path}\n"
+        )
         envs4steps[step_name] = env_name
 
     return envs4steps
+
+
+def load_reference_paths(config_path=None):
+    config = load_pipeline_config(config_path)
+    reference_paths = config.get("reference_paths", {})
+    if reference_paths is None:
+        return {}
+    if not isinstance(reference_paths, dict):
+        sys.exit("reference_paths must be a YAML mapping.\n")
+
+    normalized_reference_paths = {}
+    for path_name, path_value in reference_paths.items():
+        if not isinstance(path_name, str) or not isinstance(path_value, str):
+            sys.exit("Each reference_paths entry must map a path name to a string path.\n")
+        normalized_reference_paths[path_name] = path_value
+
+    return normalized_reference_paths
+
+
+def _normalize_path(path):
+    return Path(path).expanduser().as_posix()
 
 class Pipeline:
     __HPC_nodes_to_skipped = set()
@@ -144,21 +173,10 @@ class Pipeline:
     refGenome_folder = None
     adapter = None
     adapter_fasta = None
-    species = {"hg19"   : "Homo_sapiens",
-               "hg38"   : "Homo_sapiens",
-               "hs1"    : "Homo_sapiens",
-               "mm10"   : "Mus_musculus",
-               "mm9"    : "Mus_musculus",
-               "rn6"    : "Rattus_norvegicus",
-               "rn5"    : "Rattus_norvegicus",
-               "chlSab2": "Chlorocebus_sabeus",
-               "zikv"   : "Zika_virus",
-               "denv3"  : "Dengue_virus_3"}
 
-    sentieon_nodes = {"ncshpc311", "ncshpc312", "ncshpc313"}
-    sentieon_queque = "sentieon.q"
-
+    config = load_pipeline_config()
     envs4steps = load_envs4steps()
+    configured_reference_paths = load_reference_paths()
 
     def add_nodes_to_be_skipped(self,more_nodes_to_be_skipped):
         self.__HPC_nodes_to_skipped = self.__HPC_nodes_to_skipped.union(more_nodes_to_be_skipped)
@@ -180,9 +198,6 @@ class Pipeline:
         self.log_file = log_file
 
         self.ref_genome = ref_genome
-        if ref_genome not in self.species: # hg19, hg38, rn6, chlSab2, zikv, denv3
-            sys.stdout.write(f"Reference genome [{ref_genome}] is not in the list. Please specify the path.\n")
-
         self.ref_type = ref_type # genome, transcriptome
         self.feature = feature # transcript, exon, CDS
         self.library_source = library_source.upper() # GENOMIC, TRANSCRIPTOMIC
@@ -190,6 +205,14 @@ class Pipeline:
         self.check_adapter()
         self.platform = platform.upper() # ILLUMINA, PACBIO_SMRT, OXFORD_NANOPORE
         self.filetype = filetype.lower() # fastq, bam
+        self.genome_fasta = None
+        self.bwa_index = None
+        self.bowtie2_index = None
+        self.minimap2_index = None
+        self.hisat2_index = None
+        self.star_index = None
+        self.gtf = None
+        self.__load_reference_paths_from_config()
 
         self.required_conda_envs = set()
         self.read_progress()
@@ -301,88 +324,203 @@ class Pipeline:
             sys.exit(f"An error occurred: {e}")
 
 
+    def __validate_existing_file(self, path, label):
+        normalized_path = _normalize_path(path)
+        if not Path(normalized_path).is_file():
+            sys.exit(f"Invalid {label}: file not found.\n  {normalized_path}\n")
+        return normalized_path
+
+
+    def __validate_existing_directory(self, path, label):
+        normalized_path = _normalize_path(path)
+        if not Path(normalized_path).is_dir():
+            sys.exit(f"Invalid {label}: directory not found.\n  {normalized_path}\n")
+        return normalized_path
+
+
+    def __validate_index_prefix(self, path, label, suffix_groups):
+        normalized_path = _normalize_path(path)
+        for suffixes in suffix_groups:
+            if all(Path(f"{normalized_path}{suffix}").is_file() for suffix in suffixes):
+                return normalized_path
+        sys.exit(f"Invalid {label}: index files not found for prefix.\n  {normalized_path}\n")
+
+
+    def __set_reference_path(self, attr_name, path, validator):
+        normalized_path = validator(path)
+        setattr(self, attr_name, normalized_path)
+        return normalized_path
+
+
+    def __get_required_reference_path(self, attr_name, label, setter_name, arg_name):
+        path = getattr(self, attr_name)
+        if path is None:
+            sys.exit(
+                f"{label} is not set.\n"
+                f"Use {setter_name}() before running this step, or pass {arg_name}=...\n"
+            )
+        return path
+
+
+    def __load_reference_paths_from_config(self):
+        setter_by_attr = {
+            "genome_fasta": self.set_genome_fasta,
+            "bwa_index": self.set_bwa_index,
+            "bowtie2_index": self.set_bowtie2_index,
+            "minimap2_index": self.set_minimap2_index,
+            "hisat2_index": self.set_hisat2_index,
+            "star_index": self.set_star_index,
+            "gtf": self.set_gtf,
+        }
+
+        for attr_name, path in self.configured_reference_paths.items():
+            setter = setter_by_attr.get(attr_name)
+            if setter is None:
+                valid_keys = ", ".join(sorted(setter_by_attr))
+                sys.exit(
+                    f"Unknown reference_paths key in YAML: {attr_name}\n"
+                    f"Valid keys are: {valid_keys}\n"
+                )
+            setter(path)
+
+
+    def set_genome_fasta(self, path):
+        return self.__set_reference_path(
+            "genome_fasta",
+            path,
+            lambda value: self.__validate_existing_file(value, "genome FASTA"),
+        )
+
+
+    def set_bwa_index(self, path):
+        return self.__set_reference_path(
+            "bwa_index",
+            path,
+            lambda value: self.__validate_index_prefix(
+                value,
+                "BWA index",
+                [(".amb", ".ann", ".bwt", ".pac", ".sa")],
+            ),
+        )
+
+
+    def set_bowtie2_index(self, path):
+        return self.__set_reference_path(
+            "bowtie2_index",
+            path,
+            lambda value: self.__validate_index_prefix(
+                value,
+                "Bowtie2 index",
+                [
+                    (".1.bt2", ".2.bt2", ".3.bt2", ".4.bt2", ".rev.1.bt2", ".rev.2.bt2"),
+                    (".1.bt2l", ".2.bt2l", ".3.bt2l", ".4.bt2l", ".rev.1.bt2l", ".rev.2.bt2l"),
+                ],
+            ),
+        )
+
+
+    def set_minimap2_index(self, path):
+        return self.__set_reference_path(
+            "minimap2_index",
+            path,
+            lambda value: self.__validate_existing_file(value, "minimap2 index"),
+        )
+
+
+    def set_hisat2_index(self, path):
+        return self.__set_reference_path(
+            "hisat2_index",
+            path,
+            lambda value: self.__validate_index_prefix(
+                value,
+                "HISAT2 index",
+                [
+                    tuple(f".{i}.ht2" for i in range(1, 9)),
+                    tuple(f".{i}.ht2l" for i in range(1, 9)),
+                ],
+            ),
+        )
+
+
+    def set_star_index(self, path):
+        return self.__set_reference_path(
+            "star_index",
+            path,
+            lambda value: self.__validate_existing_directory(value, "STAR index"),
+        )
+
+
+    def set_gtf(self, path):
+        return self.__set_reference_path(
+            "gtf",
+            path,
+            lambda value: self.__validate_existing_file(value, "GTF"),
+        )
+
+
     def __get_genome_fasta(self):
-        genome_fasta = Path(self.refGenome_folder,
-                            self.species[self.ref_genome],
-                            "UCSC",
-                            self.ref_genome,
-                            "Sequence",
-                            "WholeGenomeFasta",
-                            "genome.fa")
-        return genome_fasta.as_posix()
+        return self.__get_required_reference_path(
+            "genome_fasta",
+            "Genome FASTA",
+            "set_genome_fasta",
+            "genome_fasta",
+        )
 
 
     def __get_bwa_index(self):
-        bwa_index = Path(self.refGenome_folder,
-                         self.species[self.ref_genome],
-                         "UCSC",
-                         self.ref_genome,
-                         "Sequence",
-                         "BWAIndex",
-                         "genome.fa")
-        return bwa_index.as_posix()
+        return self.__get_required_reference_path(
+            "bwa_index",
+            "BWA index",
+            "set_bwa_index",
+            "bwa_index",
+        )
 
 
     def __get_bowtie2_index(self):
-        bowtie2_index = Path(self.refGenome_folder,
-                             self.species[self.ref_genome],
-                             "UCSC",
-                             self.ref_genome,
-                             "Sequence",
-                             "Bowtie2Index",
-                             "genome")
-        return bowtie2_index.as_posix()
+        return self.__get_required_reference_path(
+            "bowtie2_index",
+            "Bowtie2 index",
+            "set_bowtie2_index",
+            "bowtie2_index",
+        )
 
 
     def __get_minimap2_index(self):
-        minimap2_index = Path(self.refGenome_folder,
-                              self.species[self.ref_genome],
-                              "UCSC",
-                              self.ref_genome,
-                              "Sequence",
-                              "minimap2Index",
-                              "genome.mmi")
-        return minimap2_index.as_posix()
+        return self.__get_required_reference_path(
+            "minimap2_index",
+            "minimap2 index",
+            "set_minimap2_index",
+            "minimap2_index",
+        )
 
 
     def __get_hisat2_index(self):
-        if self.ref_type in ("genome","transcriptome"):
-            hisat2_index = Path(self.refGenome_folder,
-                                self.species[self.ref_genome],
-                                "UCSC",
-                                self.ref_genome,
-                                "Sequence",
-                                "HISAT2Index",
-                                self.ref_type)
-            return hisat2_index.as_posix()
-        else:
-            sys.exit("Wrong ref_type: %s\n" % self.ref_type)
+        return self.__get_required_reference_path(
+            "hisat2_index",
+            "HISAT2 index",
+            "set_hisat2_index",
+            "hisat2_index",
+        )
 
 
     def __get_star_index(self):
-        if self.ref_type in ("genome","transcriptome"):
-            star_index = Path(self.refGenome_folder,
-                              self.species[self.ref_genome],
-                              "UCSC",
-                              self.ref_genome,
-                              "Sequence",
-                              "STARIndex")
-            return star_index.as_posix()
-        else:
-            sys.exit("Wrong ref_type: %s\n" % self.ref_type)
+        return self.__get_required_reference_path(
+            "star_index",
+            "STAR index",
+            "set_star_index",
+            "star_index",
+        )
 
 
     def __get_gtf(self):
         if self.feature in ("genome","transcript","exon","CDS"):
             self.batch["ENV"].append('feature="%s"\n' % self.feature)
-            gtf_path = Path(self.refGenome_folder,
-                            self.species[self.ref_genome],
-                            "UCSC",
-                            self.ref_genome,
-                            "Annotation",
-                            "Genes",
-                            "genome.gtf")
-            return gtf_path.as_posix()
+            return self.__get_required_reference_path(
+                "gtf",
+                "GTF",
+                "set_gtf",
+                "gtf",
+            )
         else:
             sys.exit("Wrong feature: %s\n" % self.feature)
 
@@ -896,7 +1034,7 @@ class Pipeline:
         if bwa_index is None: # if BWAIndex is not specified, set it to the default value
             self.bwa_index = self.__get_bwa_index()
         else:
-            self.bwa_index = bwa_index
+            self.bwa_index = self.set_bwa_index(bwa_index)
             if ref_genome is not None:
                 self.ref_genome = ref_genome
             else:
@@ -957,7 +1095,7 @@ class Pipeline:
         if bowtie2_index is None: # if Bowtie2Index is not specified, set it to the default value
             self.bowtie2_index = self.__get_bowtie2_index()
         else:
-            self.bowtie2_index = bowtie2_index
+            self.bowtie2_index = self.set_bowtie2_index(bowtie2_index)
             if ref_genome is not None:
                 self.ref_genome = ref_genome
             else:
@@ -1024,7 +1162,7 @@ class Pipeline:
         if minimap2_index is None: # if minimap2Index is not specified, set it to the default value
             self.minimap2_index = self.__get_minimap2_index()
         else:
-            self.minimap2_index = minimap2_index
+            self.minimap2_index = self.set_minimap2_index(minimap2_index)
             if ref_genome is not None:
                 self.ref_genome = ref_genome
             else:
@@ -1085,12 +1223,14 @@ class Pipeline:
         batch = []
         self.mapper = "HISAT2"
         if hisat2_index is None:  # if HISAT2Index is not specified, set it to the default value
-            hisat2_index = self.__get_hisat2_index()
+            self.hisat2_index = self.__get_hisat2_index()
         else:
+            self.hisat2_index = self.set_hisat2_index(hisat2_index)
             if ref_genome is not None:
                 self.ref_genome = ref_genome
             else:
                 sys.exit(f"Please set the name of the reference genome for specified HISAT2Index:\n    {hisat2_index}\n")
+        hisat2_index = self.hisat2_index
 
         fn_name = inspect.currentframe().f_code.co_name  # get the name of the function
         step_id = self.__current_step_id + "|" + fn_name + "_" + self.ref_genome
@@ -1148,17 +1288,21 @@ class Pipeline:
         step_id = self.__current_step_id + "|" + fn_name
         self.mapper = "STAR"
         if star_index is None: # if STARIndex is not specified, set it to the default value
-            star_index = self.__get_star_index()
+            self.star_index = self.__get_star_index()
             ref_genome = self.ref_genome
         else:
+            self.star_index = self.set_star_index(star_index)
             if ref_genome is None:
                 sys.exit("ERROR: ref_genome must be provided")
+        star_index = self.star_index
         step_id = step_id + "_" + ref_genome
 
         if gtf is None:
             #gtf = self.__get_gtf()
             gene_model = None # set gene_model to None as the default GTF will be used
         else:
+            self.gtf = self.set_gtf(gtf)
+            gtf = self.gtf
             if gene_model is None:
                 gene_model = os.path.basename(gtf).split(".")[0]
         if gene_model is not None:
@@ -1377,6 +1521,8 @@ class Pipeline:
             gene_model = os.path.basename(saf).split(".")[0]
             annotation_format = "SAF"
         elif gtf is not None:
+            self.gtf = self.set_gtf(gtf)
+            gtf = self.gtf
             gene_model = os.path.basename(gtf).split(".")[0] if gene_model is None else gene_model
         else:
             gtf = self.__get_gtf()
@@ -1657,7 +1803,7 @@ class Pipeline:
         if genome_fasta is None:  # if genome_fasta is not specified, set it to the default value
             self.genome_fasta = self.__get_genome_fasta()
         else:
-            self.genome_fasta = genome_fasta
+            self.genome_fasta = self.set_genome_fasta(genome_fasta)
             if ref_genome is not None:
                 self.ref_genome = ref_genome
             else:
@@ -1754,7 +1900,7 @@ class Pipeline:
         self.batch[step_id].extend(batch)
 
 
-    def example(self, force=False):
+    def __example(self, force=False):
         batch = []
         fn_name = inspect.currentframe().f_code.co_name  # get the name of the function
         step_id = self.__current_step_id + "|" + fn_name

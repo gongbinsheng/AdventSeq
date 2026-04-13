@@ -1,5 +1,5 @@
-# Edit this file to set the conda env used by each pipeline step.
-# To use a personal override instead, set ADVENTSEQ_ENVS_YML=/path/to/your_envs.yml
+# Copy this file to pipeline_settings.yml and edit it for your environment.
+# You can also keep a personal file elsewhere and set ADVENTSEQ_ENVS_YML=/path/to/your_settings.yml
 envs4steps:
   MultiQC: MultiQC
   fastp: fastp
@@ -27,3 +27,13 @@ envs4steps:
   taxomomic_classifier: AdVentSeq
   ViraQuant: AdVentSeq
   GATK4_Mutect2: gatk
+
+# Optional reference paths loaded during Pipeline object initialization.
+reference_paths:
+  # genome_fasta: /path/to/genome.fa
+  # bwa_index: /path/to/bwa/index/prefix
+  # bowtie2_index: /path/to/bowtie2/index/prefix
+  # minimap2_index: /path/to/genome.mmi
+  # hisat2_index: /path/to/hisat2/index/prefix
+  # star_index: /path/to/STAR/index_dir
+  # gtf: /path/to/genes.gtf
