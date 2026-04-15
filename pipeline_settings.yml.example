@@ -29,11 +29,17 @@ envs4steps:
   GATK4_Mutect2: gatk
 
 # Optional reference paths loaded during Pipeline object initialization.
-reference_paths:
-  # genome_fasta: /path/to/genome.fa
-  # bwa_index: /path/to/bwa/index/prefix
-  # bowtie2_index: /path/to/bowtie2/index/prefix
-  # minimap2_index: /path/to/genome.mmi
-  # hisat2_index: /path/to/hisat2/index/prefix
-  # star_index: /path/to/STAR/index_dir
-  # gtf: /path/to/genes.gtf
+# Define one or more reference bundles keyed by ref_genome.
+# reference_paths:
+#   hg38:
+#     genome_fasta: /path/to/hg38/genome.fa
+#     bwa_index: /path/to/hg38/bwa/index/prefix
+#     bowtie2_index: /path/to/hg38/bowtie2/index/prefix
+#     minimap2_index: /path/to/hg38/genome.mmi
+#     hisat2_index: /path/to/hg38/hisat2/index/prefix
+#     star_index: /path/to/hg38/STAR/index_dir
+#     gtf: /path/to/hg38/genes.gtf
+#   mm10:
+#     genome_fasta: /path/to/mm10/genome.fa
+#     bwa_index: /path/to/mm10/bwa/index/prefix
+#     gtf: /path/to/mm10/genes.gtf

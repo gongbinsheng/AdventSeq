@@ -151,13 +151,24 @@ def load_reference_paths(config_path=None):
     if not isinstance(reference_paths, dict):
         sys.exit("reference_paths must be a YAML mapping.\n")
 
-    normalized_reference_paths = {}
-    for path_name, path_value in reference_paths.items():
-        if not isinstance(path_name, str) or not isinstance(path_value, str):
-            sys.exit("Each reference_paths entry must map a path name to a string path.\n")
-        normalized_reference_paths[path_name] = path_value
+    bundled_reference_paths = {}
+    for bundle_name, bundle_value in reference_paths.items():
+        if not isinstance(bundle_name, str):
+            sys.exit("Each reference_paths key must be a string.\n")
+        if not isinstance(bundle_value, dict):
+            sys.exit(
+                "Each reference_paths entry must map a ref_genome to a YAML mapping of paths.\n"
+            )
+        normalized_bundle = {}
+        for path_name, path_value in bundle_value.items():
+            if not isinstance(path_name, str) or not isinstance(path_value, str):
+                sys.exit(
+                    "Each reference_paths bundle entry must map a path name to a string path.\n"
+                )
+            normalized_bundle[path_name] = path_value
+        bundled_reference_paths[bundle_name] = normalized_bundle
 
-    return normalized_reference_paths
+    return bundled_reference_paths
 
 
 def _normalize_path(path):
@@ -349,7 +360,6 @@ class Pipeline:
     def __set_reference_path(self, attr_name, path, validator):
         normalized_path = validator(path)
         setattr(self, attr_name, normalized_path)
-        return normalized_path
 
 
     def __get_required_reference_path(self, attr_name, label, setter_name, arg_name):
@@ -360,6 +370,15 @@ class Pipeline:
                 f"Use {setter_name}() before running this step, or pass {arg_name}=...\n"
             )
         return path
+
+
+    def __get_ref_genome(self):
+        if self.ref_genome is None:
+            sys.exit(
+                "ref_genome is not set.\n"
+                "Use set_ref_genome(), or pass ref_genome=...\n"
+            )
+        return self.ref_genome
 
 
     def __load_reference_paths_from_config(self):
@@ -373,19 +392,45 @@ class Pipeline:
             "gtf": self.set_gtf,
         }
 
-        for attr_name, path in self.configured_reference_paths.items():
+        if self.ref_genome is None:
+            return
+
+        selected_reference_paths = self.configured_reference_paths.get(self.ref_genome)
+        if selected_reference_paths is None:
+            return
+
+        for attr_name, path in selected_reference_paths.items():
             setter = setter_by_attr.get(attr_name)
             if setter is None:
                 valid_keys = ", ".join(sorted(setter_by_attr))
                 sys.exit(
-                    f"Unknown reference_paths key in YAML: {attr_name}\n"
+                    f"Unknown reference_paths key in YAML for {self.ref_genome}: {attr_name}\n"
                     f"Valid keys are: {valid_keys}\n"
                 )
             setter(path)
 
 
+    def __clear_reference_paths(self):
+        self.genome_fasta = None
+        self.bwa_index = None
+        self.bowtie2_index = None
+        self.minimap2_index = None
+        self.hisat2_index = None
+        self.star_index = None
+        self.gtf = None
+
+
+    def set_ref_genome(self, ref_genome):
+        if not isinstance(ref_genome, str) or not ref_genome.strip():
+            sys.exit("ref_genome must be a non-empty string.\n")
+        if self.ref_genome == ref_genome:
+            return
+        self.ref_genome = ref_genome
+        self.__clear_reference_paths()
+        self.__load_reference_paths_from_config()
+
     def set_genome_fasta(self, path):
-        return self.__set_reference_path(
+        self.__set_reference_path(
             "genome_fasta",
             path,
             lambda value: self.__validate_existing_file(value, "genome FASTA"),
@@ -393,7 +438,7 @@ class Pipeline:
 
 
     def set_bwa_index(self, path):
-        return self.__set_reference_path(
+        self.__set_reference_path(
             "bwa_index",
             path,
             lambda value: self.__validate_index_prefix(
@@ -405,7 +450,7 @@ class Pipeline:
 
 
     def set_bowtie2_index(self, path):
-        return self.__set_reference_path(
+        self.__set_reference_path(
             "bowtie2_index",
             path,
             lambda value: self.__validate_index_prefix(
@@ -420,7 +465,7 @@ class Pipeline:
 
 
     def set_minimap2_index(self, path):
-        return self.__set_reference_path(
+        self.__set_reference_path(
             "minimap2_index",
             path,
             lambda value: self.__validate_existing_file(value, "minimap2 index"),
@@ -428,7 +473,7 @@ class Pipeline:
 
 
     def set_hisat2_index(self, path):
-        return self.__set_reference_path(
+        self.__set_reference_path(
             "hisat2_index",
             path,
             lambda value: self.__validate_index_prefix(
@@ -443,7 +488,7 @@ class Pipeline:
 
 
     def set_star_index(self, path):
-        return self.__set_reference_path(
+        self.__set_reference_path(
             "star_index",
             path,
             lambda value: self.__validate_existing_directory(value, "STAR index"),
@@ -451,7 +496,7 @@ class Pipeline:
 
 
     def set_gtf(self, path):
-        return self.__set_reference_path(
+        self.__set_reference_path(
             "gtf",
             path,
             lambda value: self.__validate_existing_file(value, "GTF"),
@@ -590,7 +635,7 @@ class Pipeline:
         batch.append('SID="%s"\n' % self.sample_id)
         # reset ref_genome
         if "ref_genome" in kwargs:
-            self.ref_genome = kwargs["ref_genome"]
+            self.set_ref_genome(kwargs["ref_genome"])
             batch.append('ref_genome="%s"\n' % kwargs["ref_genome"])
         # reset FASTQ or FASTQ_R1 and FASTQ_R2
         if len(self.__FASTQ_ENV) == 1:
@@ -602,12 +647,6 @@ class Pipeline:
             sys.exit("Error: FASTQ_ENV should contain either one (single-end) or two (paired-end) elements.\n")
         self.set_current_step_id(self.sample_id)  # reset current step id to sample_id
         self.batch[step_id].extend(batch)
-
-
-    def set_ref_genome(self, ref_genome):
-        if self.ref_genome != ref_genome:
-            self.ref_genome = ref_genome
-
 
     def set_qsub_parameters(self):
         batch = []
@@ -1031,17 +1070,23 @@ class Pipeline:
     def BWA_MEM(self, ref_genome=None, bwa_index=None, SAM=None, force=False):
         batch = []
         self.mapper = "bwa_mem"
-        if bwa_index is None: # if BWAIndex is not specified, set it to the default value
-            self.bwa_index = self.__get_bwa_index()
+        if bwa_index is not None:
+            if ref_genome is None:
+                sys.exit(f"Please set ref_genome for specified BWAIndex:\n    {bwa_index}\n")
+            effective_ref_genome = ref_genome
+            effective_bwa_index = self.__validate_index_prefix(
+                bwa_index,
+                "BWA index",
+                [(".amb", ".ann", ".bwt", ".pac", ".sa")],
+            )
         else:
-            self.bwa_index = self.set_bwa_index(bwa_index)
             if ref_genome is not None:
-                self.ref_genome = ref_genome
-            else:
-                sys.exit(f"Please set the name of the reference genome for specified BWAIndex:\n    {bwa_index}\n")
+                self.set_ref_genome(ref_genome)
+            effective_ref_genome = self.__get_ref_genome()
+            effective_bwa_index = self.__get_bwa_index()
 
         fn_name = inspect.currentframe().f_code.co_name  # get the name of the function
-        step_id = self.__current_step_id + "|" + fn_name + "_" + self.ref_genome
+        step_id = self.__current_step_id + "|" + fn_name + "_" + effective_ref_genome
         self.set_current_step_id(step_id)
         if self.raw_data_type == "BAM":
             batch.append('### %s was skipped ###\n\n' % step_id)
@@ -1054,8 +1099,8 @@ class Pipeline:
         batch.append('conda activate %s\n\n' % self.envs4steps[fn_name])
         self.required_conda_envs.add(self.envs4steps[fn_name])  # add env name to required env list
         # commands (timing, index, SAM)
-        batch.append('ref_genome="%s"\n' % self.ref_genome)
-        batch.append('BWAIndex="%s"\n' % self.bwa_index)
+        batch.append('ref_genome="%s"\n' % effective_ref_genome)
+        batch.append('BWAIndex="%s"\n' % effective_bwa_index)
         if SAM is None:
             batch.append('SAM="${SID}.${mapper}.${ref_genome}.sam"\n')
         else:
@@ -1092,17 +1137,26 @@ class Pipeline:
     def Bowtie2(self, ref_genome=None, bowtie2_index=None, SAM=None, end2end=True, force=False):
         batch = []
         self.mapper = "bowtie2"
-        if bowtie2_index is None: # if Bowtie2Index is not specified, set it to the default value
-            self.bowtie2_index = self.__get_bowtie2_index()
+        if bowtie2_index is not None:
+            if ref_genome is None:
+                sys.exit(f"Please set ref_genome for specified Bowtie2Index:\n    {bowtie2_index}\n")
+            effective_ref_genome = ref_genome
+            effective_bowtie2_index = self.__validate_index_prefix(
+                bowtie2_index,
+                "Bowtie2 index",
+                [
+                    (".1.bt2", ".2.bt2", ".3.bt2", ".4.bt2", ".rev.1.bt2", ".rev.2.bt2"),
+                    (".1.bt2l", ".2.bt2l", ".3.bt2l", ".4.bt2l", ".rev.1.bt2l", ".rev.2.bt2l"),
+                ],
+            )
         else:
-            self.bowtie2_index = self.set_bowtie2_index(bowtie2_index)
             if ref_genome is not None:
-                self.ref_genome = ref_genome
-            else:
-                sys.exit(f"Please set the name of the reference genome for specified Bowtie2Index:\n    {bowtie2_index}\n")
+                self.set_ref_genome(ref_genome)
+            effective_ref_genome = self.__get_ref_genome()
+            effective_bowtie2_index = self.__get_bowtie2_index()
 
         fn_name = inspect.currentframe().f_code.co_name  # get the name of the function
-        step_id = self.__current_step_id + "|" + fn_name + "_" + self.ref_genome
+        step_id = self.__current_step_id + "|" + fn_name + "_" + effective_ref_genome
         if self.raw_data_type == "BAM":
             batch.append('### %s was skipped ###\n\n' % step_id)
             batch.append("# %s can only run with FASTQ files.\n#\t%s\n" % (step_id, "\n#\t".join(self.file_list)))
@@ -1114,8 +1168,8 @@ class Pipeline:
         batch.append('conda activate %s\n\n' % self.envs4steps[fn_name])
         self.required_conda_envs.add(self.envs4steps[fn_name])  # add env name to required env list
         # commands (timing, index, SAM)
-        batch.append('ref_genome="%s"\n' % self.ref_genome)
-        batch.append('Bowtie2Index="%s"\n' % self.bowtie2_index)
+        batch.append('ref_genome="%s"\n' % effective_ref_genome)
+        batch.append('Bowtie2Index="%s"\n' % effective_bowtie2_index)
         if SAM is None:
             batch.append('SAM="${SID}.${mapper}.${ref_genome}.sam"\n')
         else:
@@ -1159,17 +1213,19 @@ class Pipeline:
     def minimap2(self, ref_genome=None, minimap2_index=None, SAM=None, force=False):
         batch = []
         self.mapper = "minimap2"
-        if minimap2_index is None: # if minimap2Index is not specified, set it to the default value
-            self.minimap2_index = self.__get_minimap2_index()
+        if minimap2_index is not None:
+            if ref_genome is None:
+                sys.exit(f"Please set ref_genome for specified minimap2Index:\n    {minimap2_index}\n")
+            effective_ref_genome = ref_genome
+            effective_minimap2_index = self.__validate_existing_file(minimap2_index, "minimap2 index")
         else:
-            self.minimap2_index = self.set_minimap2_index(minimap2_index)
             if ref_genome is not None:
-                self.ref_genome = ref_genome
-            else:
-                sys.exit(f"Please set the name of the reference genome for specified Bowtie2Index:\n    {minimap2_index}\n")
+                self.set_ref_genome(ref_genome)
+            effective_ref_genome = self.__get_ref_genome()
+            effective_minimap2_index = self.__get_minimap2_index()
 
         fn_name = inspect.currentframe().f_code.co_name  # get the name of the function
-        step_id = self.__current_step_id + "|" + fn_name + "_" + self.ref_genome
+        step_id = self.__current_step_id + "|" + fn_name + "_" + effective_ref_genome
         if self.raw_data_type == "BAM":
             batch.append('### %s was skipped ###\n\n' % step_id)
             batch.append("# %s can only run with FASTQ files.\n#\t%s\n" % (step_id, "\n#\t".join(self.file_list)))
@@ -1181,8 +1237,8 @@ class Pipeline:
         batch.append('conda activate %s\n\n' % self.envs4steps[fn_name])
         self.required_conda_envs.add(self.envs4steps[fn_name])  # add env name to required env list
         # commands (timing, index, SAM)
-        batch.append('ref_genome="%s"\n' % self.ref_genome)
-        batch.append('minimap2Index="%s"\n' % self.minimap2_index)
+        batch.append('ref_genome="%s"\n' % effective_ref_genome)
+        batch.append('minimap2Index="%s"\n' % effective_minimap2_index)
         if SAM is None:
             batch.append('SAM="${SID}.${mapper}.${ref_genome}.sam"\n')
         else:
@@ -1222,18 +1278,26 @@ class Pipeline:
     def HISAT2(self, ref_genome=None, hisat2_index=None, SAM=None, force=False):
         batch = []
         self.mapper = "HISAT2"
-        if hisat2_index is None:  # if HISAT2Index is not specified, set it to the default value
-            self.hisat2_index = self.__get_hisat2_index()
+        if hisat2_index is not None:
+            if ref_genome is None:
+                sys.exit(f"Please set ref_genome for specified HISAT2Index:\n    {hisat2_index}\n")
+            effective_ref_genome = ref_genome
+            effective_hisat2_index = self.__validate_index_prefix(
+                hisat2_index,
+                "HISAT2 index",
+                [
+                    tuple(f".{i}.ht2" for i in range(1, 9)),
+                    tuple(f".{i}.ht2l" for i in range(1, 9)),
+                ],
+            )
         else:
-            self.hisat2_index = self.set_hisat2_index(hisat2_index)
             if ref_genome is not None:
-                self.ref_genome = ref_genome
-            else:
-                sys.exit(f"Please set the name of the reference genome for specified HISAT2Index:\n    {hisat2_index}\n")
-        hisat2_index = self.hisat2_index
+                self.set_ref_genome(ref_genome)
+            effective_ref_genome = self.__get_ref_genome()
+            effective_hisat2_index = self.__get_hisat2_index()
 
         fn_name = inspect.currentframe().f_code.co_name  # get the name of the function
-        step_id = self.__current_step_id + "|" + fn_name + "_" + self.ref_genome
+        step_id = self.__current_step_id + "|" + fn_name + "_" + effective_ref_genome
         if self.raw_data_type == "BAM":
             batch.append('### %s was skipped ###\n\n' % step_id)
             batch.append(
@@ -1246,8 +1310,8 @@ class Pipeline:
         batch.append('conda activate %s\n\n' % self.envs4steps[fn_name])
         self.required_conda_envs.add(self.envs4steps[fn_name])  # add env name to required env list
         # commands (timing, index, SAM)
-        batch.append('ref_genome="%s"\n' % self.ref_genome)
-        batch.append('HISAT2Index="%s"\n' % hisat2_index)
+        batch.append('ref_genome="%s"\n' % effective_ref_genome)
+        batch.append('HISAT2Index="%s"\n' % effective_hisat2_index)
         if SAM is None:
             batch.append('SAM="${SID}.${mapper}.${ref_genome}.sam"\n')
         else:
@@ -1287,24 +1351,26 @@ class Pipeline:
         fn_name = inspect.currentframe().f_code.co_name  # get the name of the function
         step_id = self.__current_step_id + "|" + fn_name
         self.mapper = "STAR"
-        if star_index is None: # if STARIndex is not specified, set it to the default value
-            self.star_index = self.__get_star_index()
-            ref_genome = self.ref_genome
-        else:
-            self.star_index = self.set_star_index(star_index)
+        if star_index is not None:
             if ref_genome is None:
                 sys.exit("ERROR: ref_genome must be provided")
-        star_index = self.star_index
-        step_id = step_id + "_" + ref_genome
+            effective_ref_genome = ref_genome
+            effective_star_index = self.__validate_existing_directory(star_index, "STAR index")
+        else:
+            if ref_genome is not None:
+                self.set_ref_genome(ref_genome)
+            effective_ref_genome = self.__get_ref_genome()
+            effective_star_index = self.__get_star_index()
+        step_id = step_id + "_" + effective_ref_genome
 
         if gtf is None:
             #gtf = self.__get_gtf()
+            effective_gtf = None
             gene_model = None # set gene_model to None as the default GTF will be used
         else:
-            self.gtf = self.set_gtf(gtf)
-            gtf = self.gtf
+            effective_gtf = self.__validate_existing_file(gtf, "GTF")
             if gene_model is None:
-                gene_model = os.path.basename(gtf).split(".")[0]
+                gene_model = os.path.basename(effective_gtf).split(".")[0]
         if gene_model is not None:
             step_id = step_id + "_" + gene_model
 
@@ -1315,12 +1381,12 @@ class Pipeline:
         batch.append('conda activate %s\n\n' % self.envs4steps[fn_name])
         self.required_conda_envs.add(self.envs4steps[fn_name])  # add env name to required env list
         # commands
-        batch.append('ref_genome="%s"\n' % ref_genome)
-        batch.append('STARIndex="%s"\n' % star_index)
+        batch.append('ref_genome="%s"\n' % effective_ref_genome)
+        batch.append('STARIndex="%s"\n' % effective_star_index)
         if gene_model is not None:
             batch.append('gene_model="%s"\n' % gene_model)
-        if gtf:
-            batch.append("GTF=%s\n" % gtf)
+        if effective_gtf:
+            batch.append("GTF=%s\n" % effective_gtf)
         batch.append('rm -fr "${SID}.${mapper}.${ref_genome}%s.*"\n\n' % ("_{gene_model}" if gene_model else ""))
         # batch.append('FASTQ_unmapped_R1="${SID}.${mapper}.${ref_genome}.unmapped.R1.fastq.gz"\n')
         # batch.append('FASTQ_unmapped_R2="${SID}.${mapper}.${ref_genome}.unmapped.R2.fastq.gz"\n\n')
@@ -1339,7 +1405,7 @@ class Pipeline:
         elif self.library_layout.lower() == "paired":
             batch.append('    --readFilesIn "$FASTQ_R1" "$FASTQ_R2" \\\n')
         batch.append('    --readFilesCommand zcat \\\n')
-        if gtf:
+        if effective_gtf:
             batch.append('    --sjdbGTFfile "$GTF" \\\n')
         batch.append('    --outFileNamePrefix "${STAR_outFileNamePrefix}." \\\n')
         batch.append('    --outSAMattrRGline "ID:$SID\\tSM:$SID\\tLB:$SID\\tPL:%s" \\\n' % (self.platform,))
@@ -1521,7 +1587,7 @@ class Pipeline:
             gene_model = os.path.basename(saf).split(".")[0]
             annotation_format = "SAF"
         elif gtf is not None:
-            self.gtf = self.set_gtf(gtf)
+            self.set_gtf(gtf)
             gtf = self.gtf
             gene_model = os.path.basename(gtf).split(".")[0] if gene_model is None else gene_model
         else:
@@ -1800,14 +1866,16 @@ class Pipeline:
         batch = []
         fn_name = inspect.currentframe().f_code.co_name  # get the name of the function
         self.caller = "GATK4_Mutect2"
-        if genome_fasta is None:  # if genome_fasta is not specified, set it to the default value
-            self.genome_fasta = self.__get_genome_fasta()
+        if genome_fasta is not None:
+            if ref_genome is None:
+                sys.exit(f"Please set ref_genome for specified genome_fasta:\n    {genome_fasta}\n")
+            effective_ref_genome = ref_genome
+            effective_genome_fasta = self.__validate_existing_file(genome_fasta, "genome FASTA")
         else:
-            self.genome_fasta = self.set_genome_fasta(genome_fasta)
             if ref_genome is not None:
-                self.ref_genome = ref_genome
-            else:
-                sys.exit(f"Please set the name of the reference genome for specified genome_fasta:\n    {genome_fasta}\n")
+                self.set_ref_genome(ref_genome)
+            effective_ref_genome = self.__get_ref_genome()
+            effective_genome_fasta = self.__get_genome_fasta()
 
         step_id = self.__current_step_id + "|" + fn_name
         batch.append(f'{"#" * (len(step_id) + 8)}\n')
@@ -1817,8 +1885,8 @@ class Pipeline:
         batch.append('conda activate %s\n\n' % self.envs4steps[fn_name])
         self.required_conda_envs.add(self.envs4steps[fn_name])  # add env name to required env list
         ### commands
-        batch.append('ref_genome="%s"\n' % self.ref_genome)
-        batch.append('genome_fasta="%s"\n' % self.genome_fasta)
+        batch.append('ref_genome="%s"\n' % effective_ref_genome)
+        batch.append('genome_fasta="%s"\n' % effective_genome_fasta)
         batch.append('VCF="${sorted_BAM%.*}.vcf"\n')
         # call variants
         batch.append('gatk Mutect2 \\\n')
