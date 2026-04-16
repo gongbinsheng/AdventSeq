@@ -190,11 +190,19 @@ class Pipeline:
         cls.configured_reference_paths = cls._extract_reference_paths(config)
         return config
 
+
+    @classmethod
+    def ensure_pipeline_config_loaded(cls):
+        if cls.config:
+            return cls.config
+        return cls.load_pipeline_config()
+
     def add_nodes_to_be_skipped(self,more_nodes_to_be_skipped):
         self.__HPC_nodes_to_skipped = self.__HPC_nodes_to_skipped.union(more_nodes_to_be_skipped)
 
 
     def __init__(self, sample_id, file_list, log_file, ref_genome, ref_type, feature, library_source, library_layout, platform, filetype):
+        self.ensure_pipeline_config_loaded()
         if self.WD is None:
             sys.stderr.write("Working directory (WD) is not set. Set it to current directory.")
             self.WD = Path.cwd()
@@ -2000,6 +2008,3 @@ class Pipeline:
         else:
             self.is_completed = False
         self.batch[step_id].extend(batch)
-
-
-Pipeline.load_pipeline_config()
