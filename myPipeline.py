@@ -1,8 +1,8 @@
-import os
 import re
 import sys
 import subprocess
 import inspect
+import os
 from collections import defaultdict, OrderedDict
 from pathlib import Path
 
@@ -87,88 +87,7 @@ def parse_gtf(file_path):
             }
             yield gtf_record
 
-
 DEFAULT_ENV_CONFIG = Path(__file__).with_name("pipeline_settings.yml")
-ENV_CONFIG_ENVVAR = "ADVENTSEQ_ENVS_YML"
-
-
-def load_pipeline_config(config_path=None):
-    env_config_path = Path(
-        config_path or
-        os.environ.get(ENV_CONFIG_ENVVAR, DEFAULT_ENV_CONFIG)
-    )
-
-    if not env_config_path.exists():
-        example_path = env_config_path.with_suffix(env_config_path.suffix + ".example")
-        sys.exit(
-            f"Cannot find conda env config file:\n"
-            f"  {env_config_path}\n"
-            f"Create it from the example file:\n"
-            f"  {example_path}\n"
-            f"Or set {ENV_CONFIG_ENVVAR} to point to your custom YAML file.\n"
-        )
-
-    try:
-        with open(env_config_path, "r", encoding="utf-8") as handle:
-            config = yaml.safe_load(handle) or {}
-    except yaml.YAMLError as e:
-        sys.exit(f"Could not parse YAML file:\n  {env_config_path}\n{e}\n")
-    except OSError as e:
-        sys.exit(f"Could not read env config file:\n  {env_config_path}\n{e}\n")
-
-    if not isinstance(config, dict):
-        sys.exit(f"Env config must be a YAML mapping:\n  {env_config_path}\n")
-
-    return config
-
-
-def load_envs4steps(config_path=None):
-    config = load_pipeline_config(config_path)
-    step_envs = config.get("envs4steps", config)
-    if not isinstance(step_envs, dict):
-        sys.exit(
-            f"envs4steps must be a YAML mapping.\n"
-            f"    {config_path}\n"
-        )
-
-    envs4steps = {}
-    for step_name, env_name in step_envs.items():
-        if not isinstance(step_name, str) or not isinstance(env_name, str):
-            sys.exit(
-                f"Each envs4steps entry must map a step name to a conda env string:\n"
-                f"    {config_path}\n"
-        )
-        envs4steps[step_name] = env_name
-
-    return envs4steps
-
-
-def load_reference_paths(config_path=None):
-    config = load_pipeline_config(config_path)
-    reference_paths = config.get("reference_paths", {})
-    if reference_paths is None:
-        return {}
-    if not isinstance(reference_paths, dict):
-        sys.exit("reference_paths must be a YAML mapping.\n")
-
-    bundled_reference_paths = {}
-    for bundle_name, bundle_value in reference_paths.items():
-        if not isinstance(bundle_name, str):
-            sys.exit("Each reference_paths key must be a string.\n")
-        if not isinstance(bundle_value, dict):
-            sys.exit(
-                "Each reference_paths entry must map a ref_genome to a YAML mapping of paths.\n"
-            )
-        normalized_bundle = {}
-        for path_name, path_value in bundle_value.items():
-            if not isinstance(path_name, str) or not isinstance(path_value, str):
-                sys.exit(
-                    "Each reference_paths bundle entry must map a path name to a string path.\n"
-                )
-            normalized_bundle[path_name] = path_value
-        bundled_reference_paths[bundle_name] = normalized_bundle
-
-    return bundled_reference_paths
 
 
 def _normalize_path(path):
@@ -184,9 +103,93 @@ class Pipeline:
     adapter = None
     adapter_fasta = None
 
-    config = load_pipeline_config()
-    envs4steps = load_envs4steps()
-    configured_reference_paths = load_reference_paths()
+    config_path = DEFAULT_ENV_CONFIG
+    config = {}
+    envs4steps = {}
+    configured_reference_paths = {}
+
+    @classmethod
+    def _resolve_config_path(cls, config_path=None):
+        return Path(config_path or cls.config_path)
+
+
+    @classmethod
+    def _extract_envs4steps(cls, config, config_path):
+        step_envs = config.get("envs4steps", config)
+        if not isinstance(step_envs, dict):
+            sys.exit(
+                f"envs4steps must be a YAML mapping.\n"
+                f"    {config_path}\n"
+            )
+
+        envs4steps = {}
+        for step_name, env_name in step_envs.items():
+            if not isinstance(step_name, str) or not isinstance(env_name, str):
+                sys.exit(
+                    f"Each envs4steps entry must map a step name to a conda env string:\n"
+                    f"    {config_path}\n"
+                )
+            envs4steps[step_name] = env_name
+        return envs4steps
+
+
+    @classmethod
+    def _extract_reference_paths(cls, config):
+        reference_paths = config.get("reference_paths", {})
+        if reference_paths is None:
+            return {}
+        if not isinstance(reference_paths, dict):
+            sys.exit("reference_paths must be a YAML mapping.\n")
+
+        bundled_reference_paths = {}
+        for bundle_name, bundle_value in reference_paths.items():
+            if not isinstance(bundle_name, str):
+                sys.exit("Each reference_paths key must be a string.\n")
+            if not isinstance(bundle_value, dict):
+                sys.exit(
+                    "Each reference_paths entry must map a ref_genome to a YAML mapping of paths.\n"
+                )
+            normalized_bundle = {}
+            for path_name, path_value in bundle_value.items():
+                if not isinstance(path_name, str) or not isinstance(path_value, str):
+                    sys.exit(
+                        "Each reference_paths bundle entry must map a path name to a string path.\n"
+                    )
+                normalized_bundle[path_name] = path_value
+            bundled_reference_paths[bundle_name] = normalized_bundle
+
+        return bundled_reference_paths
+
+
+    @classmethod
+    def load_pipeline_config(cls, config_path=None):
+        env_config_path = cls._resolve_config_path(config_path)
+
+        if not env_config_path.exists():
+            example_path = env_config_path.with_suffix(env_config_path.suffix + ".example")
+            sys.exit(
+                f"Cannot find conda env config file:\n"
+                f"  {env_config_path}\n"
+                f"Create it from the example file:\n"
+                f"  {example_path}\n"
+            )
+
+        try:
+            with open(env_config_path, "r", encoding="utf-8") as handle:
+                config = yaml.safe_load(handle) or {}
+        except yaml.YAMLError as e:
+            sys.exit(f"Could not parse YAML file:\n  {env_config_path}\n{e}\n")
+        except OSError as e:
+            sys.exit(f"Could not read env config file:\n  {env_config_path}\n{e}\n")
+
+        if not isinstance(config, dict):
+            sys.exit(f"Env config must be a YAML mapping:\n  {env_config_path}\n")
+
+        cls.config_path = env_config_path
+        cls.config = config
+        cls.envs4steps = cls._extract_envs4steps(config, env_config_path)
+        cls.configured_reference_paths = cls._extract_reference_paths(config)
+        return config
 
     def add_nodes_to_be_skipped(self,more_nodes_to_be_skipped):
         self.__HPC_nodes_to_skipped = self.__HPC_nodes_to_skipped.union(more_nodes_to_be_skipped)
@@ -1996,3 +1999,6 @@ class Pipeline:
         else:
             self.is_completed = False
         self.batch[step_id].extend(batch)
+
+
+Pipeline.load_pipeline_config()

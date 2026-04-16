@@ -28,14 +28,8 @@ The module does not currently provide a top-level CLI or a built-in `write_scrip
 - `parse_gtf(file_path)`
   Yields parsed GTF records as dictionaries with coordinates, strand, feature type, and parsed attributes.
 
-- `load_pipeline_config(config_path=None)`
-  Loads the YAML configuration file used to map pipeline steps to Conda environments and optionally define reference bundles.
-
-- `load_envs4steps(config_path=None)`
-  Returns the `envs4steps` mapping from the YAML file.
-
-- `load_reference_paths(config_path=None)`
-  Returns optional reference bundles keyed by `ref_genome`.
+- `Pipeline.load_pipeline_config(config_path=None)`
+  Class method that loads the YAML configuration file, updates the class-level config cache, and refreshes both `envs4steps` and `reference_paths`.
 
 ### `OrderedDefaultDict`
 
@@ -56,9 +50,11 @@ By default, the module loads:
 
 - `pipeline_settings.yml`
 
-You can override that path with:
+If you want to use a different YAML file, load it explicitly before creating pipeline objects:
 
-- `ADVENTSEQ_ENVS_YML=/path/to/custom_settings.yml`
+```python
+Pipeline.load_pipeline_config("/path/to/custom_settings.yml")
+```
 
 If the config file is missing, the module exits with a message that points to:
 
@@ -108,6 +104,29 @@ If `ref_genome` is set on the `Pipeline` object and the same key exists in `refe
 - `gtf`
 
 Each setter validates that the underlying file, directory, or index prefix exists.
+
+### How config loading works now
+
+`Pipeline` keeps the active YAML path in the class attribute:
+
+- `Pipeline.config_path`
+
+On import, the class loads the default local file:
+
+- `pipeline_settings.yml`
+
+To switch to another file for the rest of the session, call:
+
+```python
+Pipeline.load_pipeline_config("/path/to/another_pipeline_settings.yml")
+```
+
+That updates all of these class attributes together:
+
+- `Pipeline.config`
+- `Pipeline.envs4steps`
+- `Pipeline.configured_reference_paths`
+- `Pipeline.config_path`
 
 ## Class-level settings
 
@@ -466,6 +485,8 @@ The following example shows the intended usage pattern for generating a shell sc
 ```python
 from pathlib import Path
 from myPipeline import Pipeline
+
+Pipeline.load_pipeline_config("/path/to/pipeline_settings.yml")
 
 Pipeline.WD = "/path/to/work"
 Pipeline.Data_folder = "/path/to/data"
