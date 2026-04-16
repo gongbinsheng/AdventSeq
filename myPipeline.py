@@ -569,16 +569,12 @@ class Pipeline:
 
 
     def __get_gtf(self):
-        if self.feature in ("genome","transcript","exon","CDS"):
-            self.batch["ENV"].append('feature="%s"\n' % self.feature)
-            return self.__get_required_reference_path(
-                "gtf",
-                "GTF",
-                "set_gtf",
-                "gtf",
-            )
-        else:
-            sys.exit("Wrong feature: %s\n" % self.feature)
+        return self.__get_required_reference_path(
+            "gtf",
+            "GTF",
+            "set_gtf",
+            "gtf",
+        )
 
 
     def check_adapter(self):
@@ -1582,7 +1578,7 @@ class Pipeline:
         self.batch[step_id].extend(batch)
 
 
-    def featureCounts(self, gene_model=None, feature=None, countReadPairs = True, saf = None, gtf = None, force=False):
+    def featureCounts(self, gene_model=None, feature="exon", countReadPairs = True, saf = None, gtf = None, force=False):
         batch = []
         fn_name = inspect.currentframe().f_code.co_name  # get the name of the function
         step_id = self.__current_step_id + "|" + fn_name
@@ -1592,23 +1588,18 @@ class Pipeline:
             step_id += "_count_reads"
 
         annotation_format = "GTF"
-        if saf is not None and gtf is not None:
+        if saf and gtf:
             sys.exit("Please specify either GTF or SAF for featureCounts, but not both.\n")
-        elif saf is not None:
-            gene_model = Path(saf).name.split(".")[0]
+        if saf:
+            gene_model = gene_model or Path(saf).name.split(".")[0]
             annotation_format = "SAF"
-        elif gtf is not None:
-            self.set_gtf(gtf)
-            gtf = self.gtf
-            gene_model = Path(gtf).name.split(".")[0] if gene_model is None else gene_model
+        elif gtf:
+            gene_model = gene_model or Path(gtf).name.split(".")[0]
         else:
             gtf = self.__get_gtf()
-            feature = self.feature
-        step_id = step_id + "|" + annotation_format
-        if gene_model is not None:
-            step_id = step_id + "_" + gene_model
-        if feature is not None:
-            step_id = step_id + "_" + feature
+            gene_model = gene_model or Path(gtf).name.split(".")[0]
+
+        step_id = f"{step_id}|{annotation_format}_{gene_model}_{feature}"
         batch.append(f'{"#" * (len(step_id) + 8)}\n')
         batch.append('### %s ###\n' % step_id)
         batch.append(f'{"#" * (len(step_id) + 8)}\n')
@@ -1624,7 +1615,7 @@ class Pipeline:
 
         batch.append('CountRes="${SID}.${mapper}.${ref_genome}.%s.%s.%s.tsv"'
                                   '\n' % (fn_name,
-                                          "_".join([x for x in (gene_model, feature) if x is not None]),
+                                          "_".join([gene_model, feature]),
                                           "count_pairs" if countReadPairs else "count_reads"))
         batch.append('featureCounts \\\n')
         batch.append('    -F %s \\\n' % annotation_format)
