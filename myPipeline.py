@@ -181,7 +181,6 @@ class Pipeline:
     memory = None
     WD = None
     Data_folder = None
-    refGenome_folder = None
     adapter = None
     adapter_fasta = None
 
