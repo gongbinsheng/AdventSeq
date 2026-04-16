@@ -2,7 +2,6 @@ import re
 import sys
 import subprocess
 import inspect
-import os
 from collections import defaultdict, OrderedDict
 from pathlib import Path
 
@@ -198,7 +197,9 @@ class Pipeline:
     def __init__(self, sample_id, file_list, log_file, ref_genome, ref_type, feature, library_source, library_layout, platform, filetype):
         if self.WD is None:
             sys.stderr.write("Working directory (WD) is not set. Set it to current directory.")
-            self.WD = os.getcwd()
+            self.WD = Path.cwd()
+        else:
+            self.WD = Path(self.WD)
         if self.Data_folder is None:
             sys.exit("Data folder is not given.")
 
@@ -711,7 +712,7 @@ class Pipeline:
 
     def read_progress(self):
         self.progress = {}
-        my_progress = Path(os.path.join(self.WD, self.sample_id, "_my_progress"))
+        my_progress = self.WD / self.sample_id / "_my_progress"
         if my_progress.is_file():
             with open(my_progress, 'r') as f:
                 for line in f:
@@ -1372,7 +1373,7 @@ class Pipeline:
         else:
             effective_gtf = self.__validate_existing_file(gtf, "GTF")
             if gene_model is None:
-                gene_model = os.path.basename(effective_gtf).split(".")[0]
+                gene_model = Path(effective_gtf).name.split(".")[0]
         if gene_model is not None:
             step_id = step_id + "_" + gene_model
 
@@ -1586,12 +1587,12 @@ class Pipeline:
         if saf is not None and gtf is not None:
             sys.exit("Please specify either GTF or SAF for featureCounts, but not both.\n")
         elif saf is not None:
-            gene_model = os.path.basename(saf).split(".")[0]
+            gene_model = Path(saf).name.split(".")[0]
             annotation_format = "SAF"
         elif gtf is not None:
             self.set_gtf(gtf)
             gtf = self.gtf
-            gene_model = os.path.basename(gtf).split(".")[0] if gene_model is None else gene_model
+            gene_model = Path(gtf).name.split(".")[0] if gene_model is None else gene_model
         else:
             gtf = self.__get_gtf()
             feature = self.feature
