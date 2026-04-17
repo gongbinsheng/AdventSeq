@@ -60,7 +60,11 @@ Adapter trimming and polyX trimming displayed protocol-specific patterns. Across
 
 The clearest method effect emerged before viral alignment. Across the seven protocols, BWA-MEM host subtraction left median non-host read pools of 3.4 x 10^5^ to 1.8 x 10^6^ reads, whereas HISAT2 left 7.0 x 10^6^ to 5.7 x 10^7^ reads and STAR left 2.0 x 10^6^ to 3.7 x 10^7^ reads (Figure 2A; Table 1). Relative to BWA-MEM, HISAT2 passed 13.1- to 57.2-fold more reads into the viral stage and STAR passed 4.2- to 44.3-fold more. Thus, the choice of host mapper strongly determined how much ambiguous host-like sequence was allowed to propagate into downstream viral analyses.
 
-This carryover effect translated directly into untargeted candidate inflation. RVDBv31 screens following BWA-MEM host subtraction typically returned hundreds of taxa, whereas HISAT2- and STAR-based subtraction often yielded thousands to more than ten thousand taxa, especially when BWA-MEM was also used on the viral side (Figure 2B; Table 2). Median untargeted taxon counts in control libraries ranged from 429 to 909 after BWA-MEM host subtraction, compared with 1,295 to 8,879 after HISAT2 or STAR host subtraction. Agreement between Kraken2 and RVDB was also higher after BWA-MEM host subtraction (median shared RVDB fraction 0.441 to 0.446) than after HISAT2 or STAR host subtraction (0.158 to 0.208), indicating that permissive host subtraction broadened the candidate space more than it sharpened consensus across discovery methods (Table 2).
+### ViraQuant_scan matched RVDB read_count at the ncbitaxon level in this benchmark
+
+The updated untargeted comparison showed that the new RVDB scan mode did not further reduce the ncbitaxon candidate space relative to RVDB `read_count` in this dataset. Across all host/viral mapper combinations, median `ViraQuant_scan` taxid counts were identical to the corresponding RVDB `read_count` taxid counts, and both `rvdb_only_taxids` and `scan_only_taxids` remained zero in the three-way comparison table (Figure 2B; Table 2). In control libraries, median ncbitaxon counts remained 877.0 and 412.5 after BWA-MEM host subtraction, 1,282.0 and 8,582.5 after HISAT2, and 1,246.5 and 7,633.0 after STAR, for Bowtie2 and BWA-MEM viral alignment respectively. Thus, grouping contigs at the ncbitaxon level and requiring `mean_depth_ge_1 >= 1` did not prune the RVDB taxid list beyond what was already captured by read counting under the current scan workflow.
+
+The dominant signal therefore remained the host-subtraction strategy rather than the RVDB summarization mode. Kraken2 still reported a much smaller candidate space after BWA-MEM host subtraction than after HISAT2 or STAR, with median control-library taxid counts of 265.5 versus 1,889.0 to 2,028.5, while the RVDB-derived methods remained much larger and especially inflated when BWA-MEM was used on the viral side (412.5 to 8,582.5 taxids in controls). Three-way consensus across Kraken2, RVDB `read_count`, and `ViraQuant_scan` stayed limited, with median shared taxid counts of 13.0 after BWA-MEM host subtraction and 121.0 to 432.5 after HISAT2 or STAR, indicating that permissive host subtraction broadened untargeted candidate space far more than the new scan-mode filter narrowed it.
 
 ### Targeted viral burden was most conservative after BWA-MEM host subtraction
 
@@ -154,7 +158,7 @@ The project directory contains the analysis scripts used to generate `Analyses/f
 
 `Figure 1` is reserved for the final AdVentSeq workflow diagram. A placeholder note has been saved as `Figures/Figure1.md`.
 
-`Figure 2A` shows the number of reads that remained after host subtraction for each host mapper and protocol. `Figure 2B` shows the corresponding inflation of untargeted RVDB candidate taxa.
+`Figure 2A` shows the number of reads that remained after host subtraction for each host mapper and protocol. `Figure 2B` compares untargeted taxid counts across Kraken2, RVDB `read_count`, and RVDB `ViraQuant_scan` at the ncbitaxon level.
 
 `Figure 3` compares targeted panel burden between control and positive-titration libraries for each host/viral mapper combination.
 
@@ -164,7 +168,7 @@ The project directory contains the analysis scripts used to generate `Analyses/f
 
 `Table 1` summarizes protocol composition, sequencing depth, and mapper-dependent non-host carryover.
 
-`Table 2` summarizes targeted burden, untargeted burden, ViraQuant summaries, and Kraken2/RVDB agreement for each host/viral mapper pair.
+`Table 2` summarizes targeted burden, untargeted burden, ViraQuant summaries, and the three-way untargeted taxid comparison across Kraken2, RVDB `read_count`, and RVDB `ViraQuant_scan` for each host/viral mapper pair.
 
 `Table 3` lists the sample-level HEV versus Zika comparison used in Figure 4.
 

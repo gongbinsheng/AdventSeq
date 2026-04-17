@@ -21,6 +21,14 @@ read_tsv_q <- function(path) {
   read_tsv(path, show_col_types = FALSE)
 }
 
+pick_existing_path <- function(paths) {
+  existing <- paths[file.exists(paths)]
+  if (!length(existing)) {
+    stop("None of the expected input files exist: ", paste(paths, collapse = ", "))
+  }
+  existing[[1]]
+}
+
 save_plot <- function(plot_obj, filename, width = 8, height = 5) {
   ggsave(
     filename = file.path(fig_dir, filename),
@@ -87,7 +95,10 @@ vq_records <- read_tsv_q("Analyses/full_run/tables/06_viraquant_records.tsv") %>
   filter(level == "virus")
 matched <- read_tsv_q("Analyses/full_run/tables/07_read_count_viraquant_matched.tsv")
 concordance <- read_tsv_q("Analyses/full_run/tables/07_virus_level_concordance.tsv")
-kraken <- read_tsv_q("Analyses/full_run/tables/08_kraken2_vs_rvdbv31_taxid_summary.tsv") %>%
+kraken <- read_tsv_q(pick_existing_path(c(
+  "Analyses/tables/08_kraken2_rvdbv31_viraquant_scan_taxid_summary.tsv",
+  "Analyses/full_run/tables/08_kraken2_rvdbv31_viraquant_scan_taxid_summary.tsv"
+))) %>%
   filter(include_analysis)
 pca_scores <- read_tsv_q("Analyses/full_run/tables/04_host_pca_scores.tsv") %>%
   filter(include_analysis, count_kind == "count_pairs")
@@ -222,8 +233,11 @@ kraken_summary <- kraken %>%
   group_by(host_mapper, virus_mapper) %>%
   summarise(
     median_kraken_taxids = round(median(kraken_taxids_total), 1),
-    median_rvdb_taxids = round(median(rvdb_taxids_total), 1),
-    median_shared_rvdb_fraction = round(median(shared_rvdb_fraction), 3),
+    median_rvdb_read_count_taxids = round(median(rvdb_taxids_total), 1),
+    median_viraquant_scan_taxids = round(median(scan_taxids_total), 1),
+    median_shared_all_three_taxids = round(median(shared_all_three_taxids), 1),
+    median_kraken_only_taxids = round(median(kraken_only_taxids), 1),
+    median_shared_all_three_rvdb_fraction = round(median(shared_all_three_rvdb_fraction), 3),
     .groups = "drop"
   )
 
@@ -332,25 +346,51 @@ plot_nonhost <- denominators %>%
 
 save_plot(plot_nonhost, "Figure2a.pdf", width = 11, height = 6.5)
 
-plot_untarget <- untarget %>%
+plot_untarget <- kraken %>%
   mutate(
     host_mapper = factor(host_mapper, levels = c("bwa_mem", "HISAT2", "STAR")),
     truth_group = factor(truth_group, levels = c("negative_control", "positive_titration"), labels = truth_labels)
   ) %>%
-  ggplot(aes(x = host_mapper, y = taxa_detected, color = host_mapper)) +
-  geom_boxplot(outlier.shape = NA, width = 0.55, alpha = 0.2) +
-  geom_jitter(width = 0.15, alpha = 0.75, size = 1.6) +
-  scale_color_manual(values = mapper_palette) +
+  select(host_mapper, virus_mapper, truth_group, kraken_taxids_total, rvdb_taxids_total, scan_taxids_total) %>%
+  pivot_longer(
+    cols = c(kraken_taxids_total, rvdb_taxids_total, scan_taxids_total),
+    names_to = "method",
+    values_to = "taxids_total"
+  ) %>%
+  mutate(
+    method = recode(
+      method,
+      kraken_taxids_total = "Kraken2",
+      rvdb_taxids_total = "RVDB read_count",
+      scan_taxids_total = "ViraQuant_scan"
+    ),
+    method = factor(method, levels = c("Kraken2", "RVDB read_count", "ViraQuant_scan"))
+  ) %>%
+  ggplot(aes(x = host_mapper, y = taxids_total, fill = method, color = method)) +
+  geom_boxplot(
+    outlier.shape = NA,
+    width = 0.7,
+    alpha = 0.35,
+    position = position_dodge(width = 0.78)
+  ) +
+  geom_point(
+    alpha = 0.4,
+    size = 1.2,
+    position = position_jitterdodge(jitter.width = 0.18, dodge.width = 0.78)
+  ) +
+  scale_fill_manual(values = c("Kraken2" = "#6c757d", "RVDB read_count" = "#d1495b", "ViraQuant_scan" = "#00798c")) +
+  scale_color_manual(values = c("Kraken2" = "#6c757d", "RVDB read_count" = "#d1495b", "ViraQuant_scan" = "#00798c")) +
   scale_y_log10(labels = si_labels) +
   facet_grid(truth_group ~ virus_mapper) +
   labs(
-    title = "Untargeted RVDB screening produces hundreds to thousands of candidate taxa",
-    subtitle = "Candidate inflation was strongest after permissive host subtraction and with bwa_mem viral alignment",
+    title = "Host subtraction still dominates untargeted taxid inflation in scan mode",
+    subtitle = "At the ncbitaxon level, ViraQuant_scan matched RVDB read_count in this benchmark while Kraken2 diverged by host mapper",
     x = "Host mapper",
-    y = "Untargeted taxa detected"
+    y = "Untargeted taxids detected",
+    fill = NULL,
+    color = NULL
   ) +
-  base_theme +
-  theme(legend.position = "none")
+  base_theme
 
 save_plot(plot_untarget, "Figure2b.pdf", width = 8.5, height = 6.5)
 
