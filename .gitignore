@@ -217,6 +217,6 @@ sample_data/
 Manuscript/
 
 # Tests
-tests/
+tests/*
 test*
 .Rproj.user

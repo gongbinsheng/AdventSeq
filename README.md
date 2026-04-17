@@ -11,3 +11,6 @@ see `taxonomic_classifier.md`
 
 ## ViraQuant.py
 see `ViraQuant.md`
+
+## convert_viraquant_scan_to_ncbitaxon.py
+see `convert_viraquant_scan_to_ncbitaxon.md`
