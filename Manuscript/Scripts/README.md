@@ -97,6 +97,7 @@ Rscript Scripts/05_virus_read_count.R --results-dir Results --sample-info Result
 Rscript Scripts/06_viraquant.R --results-dir Results --sample-info Results/sample_info.tsv --output-dir Analyses/full_run --abundance-field mean_depth_ge_1 --normalization-mode both
 Rscript Scripts/07_integrate_compare.R --results-dir Results --sample-info Results/sample_info.tsv --output-dir Analyses/full_run
 Rscript Scripts/08_compare_kraken2_rvdb_taxid.R --results-dir Results --sample-info Results/sample_info.tsv --output-dir Analyses/full_run --count-method reads
+Rscript Scripts/08_compare_kraken2_rvdb_taxid_fair.R --results-dir Results --sample-info Results/sample_info.tsv --output-dir Analyses/full_run --count-method reads --kraken-background Resources/kraken2_viral_with_rvdb.tsv.gz
 ```
 
 ### 3. Build the representative sample-data subset only

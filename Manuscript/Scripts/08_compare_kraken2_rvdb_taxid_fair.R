@@ -27,6 +27,16 @@ if (!nzchar(args$kraken_background) || !file.exists(args$kraken_background)) {
   stop("--kraken-background must point to viral.inspect.with_rvdb.tsv.gz (or .tsv)")
 }
 
+normalize_portable_path <- function(path, mustWork = FALSE) {
+  normalizePath(path, winslash = "/", mustWork = mustWork)
+}
+
+args$results_dir <- normalize_portable_path(args$results_dir, mustWork = FALSE)
+args$sample_info <- normalize_portable_path(args$sample_info, mustWork = FALSE)
+args$output_dir <- normalize_portable_path(args$output_dir, mustWork = FALSE)
+args$kraken_background <- normalize_portable_path(args$kraken_background, mustWork = FALSE)
+
+
 parse_rank_arg <- function(x) {
   vals <- trimws(unlist(strsplit(x, ",", fixed = TRUE)))
   vals <- vals[nzchar(vals)]
@@ -39,6 +49,7 @@ if (!length(selected_ranks)) {
 
 metadata <- read_sample_metadata(args$sample_info)
 out_dirs <- prepare_output_dirs(args$output_dir)
+
 
 read_tsv_maybe_gz <- function(path, ...) {
   con <- if (grepl("\\.gz$", path, ignore.case = TRUE)) gzfile(path, open = "rt") else file(path, open = "rt")
@@ -211,6 +222,20 @@ first_non_na <- function(x) {
   x[[idx[[1]]]]
 }
 
+safe_num_max <- function(x) {
+  x <- suppressWarnings(as.numeric(x))
+  x <- x[!is.na(x)]
+  if (!length(x)) return(NA_real_)
+  max(x)
+}
+
+safe_num_sum <- function(x) {
+  x <- suppressWarnings(as.numeric(x))
+  x <- x[!is.na(x)]
+  if (!length(x)) return(NA_real_)
+  sum(x)
+}
+
 collapse_unique_rows <- function(df, by_cols, agg_map) {
   if (!nrow(df)) return(df)
   key <- do.call(paste, c(df[by_cols], sep = "\r"))
@@ -312,7 +337,24 @@ scan_rows <- if (nrow(scan_files)) {
     )
   }))
 } else {
-  data.frame()
+  data.frame(
+    sample_id = character(),
+    host_mapper = character(),
+    virus_mapper = character(),
+    taxid = character(),
+    scan_taxid_name = character(),
+    scan_n_contigs = numeric(),
+    scan_length = numeric(),
+    scan_mapped_reads = numeric(),
+    scan_mapped_per_bp = numeric(),
+    scan_breadth_cov_gt0 = numeric(),
+    scan_mean_depth_all = numeric(),
+    scan_frac_ge_1 = numeric(),
+    scan_mean_depth_ge_1 = numeric(),
+    scan_median_depth_ge_1 = numeric(),
+    scan_best_contig_id = character(),
+    stringsAsFactors = FALSE
+  )
 }
 scan_rows <- add_metadata(scan_rows, metadata)
 if (nrow(scan_rows)) {
@@ -320,7 +362,6 @@ if (nrow(scan_rows)) {
   scan_rows <- scan_rows[!is.na(scan_rows$taxid) & scan_rows$taxid != "0", , drop = FALSE]
 }
 
-# Annotate rows with fair-comparison background information.
 kraken_rows_fair <- merge(kraken_rows, background_table, by = "taxid", all = FALSE, sort = FALSE)
 rvdb_main_fair <- merge(rvdb_main, background_table, by = "taxid", all = FALSE, sort = FALSE)
 scan_rows_fair <- if (nrow(scan_rows)) merge(scan_rows, background_table, by = "taxid", all = FALSE, sort = FALSE) else data.frame()
@@ -329,9 +370,9 @@ kraken_rows_fair <- collapse_unique_rows(
   kraken_rows_fair,
   by_cols = c("sample_id", "host_mapper", "taxid", "background_rank"),
   agg_map = list(
-    kraken_percent = function(x) suppressWarnings(max(as.numeric(x), na.rm = TRUE)),
-    kraken_clade_count = function(x) suppressWarnings(max(as.numeric(x), na.rm = TRUE)),
-    kraken_direct_count = function(x) suppressWarnings(max(as.numeric(x), na.rm = TRUE)),
+    kraken_percent = safe_num_max,
+    kraken_clade_count = safe_num_max,
+    kraken_direct_count = safe_num_max,
     kraken_rank_code = first_non_na,
     kraken_name = first_non_na,
     background_name = first_non_na,
@@ -342,7 +383,7 @@ rvdb_main_fair <- collapse_unique_rows(
   rvdb_main_fair,
   by_cols = c("sample_id", "host_mapper", "virus_mapper", "taxid", "background_rank"),
   agg_map = list(
-    rvdb_count = function(x) suppressWarnings(sum(as.numeric(x), na.rm = TRUE)),
+    rvdb_count = safe_num_sum,
     rvdb_label = first_non_na,
     background_name = first_non_na,
     background_rvdb_accessions = first_non_na
@@ -354,22 +395,42 @@ scan_rows_fair <- if (nrow(scan_rows_fair)) {
     by_cols = c("sample_id", "host_mapper", "virus_mapper", "taxid", "background_rank"),
     agg_map = list(
       scan_taxid_name = first_non_na,
-      scan_n_contigs = function(x) suppressWarnings(max(as.numeric(x), na.rm = TRUE)),
-      scan_length = function(x) suppressWarnings(max(as.numeric(x), na.rm = TRUE)),
-      scan_mapped_reads = function(x) suppressWarnings(max(as.numeric(x), na.rm = TRUE)),
-      scan_mapped_per_bp = function(x) suppressWarnings(max(as.numeric(x), na.rm = TRUE)),
-      scan_breadth_cov_gt0 = function(x) suppressWarnings(max(as.numeric(x), na.rm = TRUE)),
-      scan_mean_depth_all = function(x) suppressWarnings(max(as.numeric(x), na.rm = TRUE)),
-      scan_frac_ge_1 = function(x) suppressWarnings(max(as.numeric(x), na.rm = TRUE)),
-      scan_mean_depth_ge_1 = function(x) suppressWarnings(max(as.numeric(x), na.rm = TRUE)),
-      scan_median_depth_ge_1 = function(x) suppressWarnings(max(as.numeric(x), na.rm = TRUE)),
+      scan_n_contigs = safe_num_max,
+      scan_length = safe_num_max,
+      scan_mapped_reads = safe_num_max,
+      scan_mapped_per_bp = safe_num_max,
+      scan_breadth_cov_gt0 = safe_num_max,
+      scan_mean_depth_all = safe_num_max,
+      scan_frac_ge_1 = safe_num_max,
+      scan_mean_depth_ge_1 = safe_num_max,
+      scan_median_depth_ge_1 = safe_num_max,
       scan_best_contig_id = first_non_na,
       background_name = first_non_na,
       background_rvdb_accessions = first_non_na
     )
   )
 } else {
-  data.frame()
+  data.frame(
+    sample_id = character(),
+    host_mapper = character(),
+    virus_mapper = character(),
+    taxid = character(),
+    background_rank = character(),
+    scan_taxid_name = character(),
+    scan_n_contigs = numeric(),
+    scan_length = numeric(),
+    scan_mapped_reads = numeric(),
+    scan_mapped_per_bp = numeric(),
+    scan_breadth_cov_gt0 = numeric(),
+    scan_mean_depth_all = numeric(),
+    scan_frac_ge_1 = numeric(),
+    scan_mean_depth_ge_1 = numeric(),
+    scan_median_depth_ge_1 = numeric(),
+    scan_best_contig_id = character(),
+    background_name = character(),
+    background_rvdb_accessions = character(),
+    stringsAsFactors = FALSE
+  )
 }
 
 comparison_groups <- unique(rbind(
@@ -396,6 +457,8 @@ comparison_rows <- lapply(seq_len(nrow(comparison_groups)), function(i) {
   if (nrow(kraken_subset)) {
     kraken_subset$virus_mapper <- virus_mapper
     kraken_subset <- kraken_subset[, c("sample_id", "host_mapper", "virus_mapper", "taxid", "background_rank", "kraken_rank_code", "kraken_name", "kraken_percent", "kraken_clade_count", "kraken_direct_count"), drop = FALSE]
+  } else {
+    kraken_subset <- data.frame(sample_id = character(), host_mapper = character(), virus_mapper = character(), taxid = character(), background_rank = character(), kraken_rank_code = character(), kraken_name = character(), kraken_percent = numeric(), kraken_clade_count = numeric(), kraken_direct_count = numeric(), stringsAsFactors = FALSE)
   }
 
   rvdb_subset <- rvdb_main_fair[
@@ -413,15 +476,13 @@ comparison_rows <- lapply(seq_len(nrow(comparison_groups)), function(i) {
       drop = FALSE
     ]
   } else {
-    data.frame()
+    data.frame(sample_id = character(), host_mapper = character(), virus_mapper = character(), taxid = character(), background_rank = character(), stringsAsFactors = FALSE)
   }
 
-  joined <- Reduce(function(x, y) merge(x, y, by = c("sample_id", "host_mapper", "virus_mapper", "taxid", "background_rank"), all.x = TRUE, all.y = FALSE, sort = FALSE), list(
-    base_bg,
-    kraken_subset,
-    rvdb_subset,
-    scan_subset
-  ))
+  joined <- Reduce(
+    function(x, y) merge(x, y, by = c("sample_id", "host_mapper", "virus_mapper", "taxid", "background_rank"), all.x = TRUE, all.y = FALSE, sort = FALSE),
+    list(base_bg, kraken_subset, rvdb_subset, scan_subset)
+  )
 
   joined$detected_by_kraken2 <- !is.na(joined$kraken_name)
   joined$detected_by_rvdb_read_count <- !is.na(joined$rvdb_count)
@@ -438,6 +499,40 @@ comparison_rows <- lapply(seq_len(nrow(comparison_groups)), function(i) {
   joined
 })
 comparison <- bind_rows_fill(comparison_rows)
+if (!nrow(comparison) && !length(names(comparison))) {
+  comparison <- data.frame(
+    sample_id = character(),
+    host_mapper = character(),
+    virus_mapper = character(),
+    taxid = character(),
+    background_rank = character(),
+    background_name = character(),
+    background_rvdb_accessions = character(),
+    kraken_rank_code = character(),
+    kraken_name = character(),
+    kraken_percent = numeric(),
+    kraken_clade_count = numeric(),
+    kraken_direct_count = numeric(),
+    rvdb_count = numeric(),
+    rvdb_label = character(),
+    scan_taxid_name = character(),
+    scan_n_contigs = numeric(),
+    scan_length = numeric(),
+    scan_mapped_reads = numeric(),
+    scan_mapped_per_bp = numeric(),
+    scan_breadth_cov_gt0 = numeric(),
+    scan_mean_depth_all = numeric(),
+    scan_frac_ge_1 = numeric(),
+    scan_mean_depth_ge_1 = numeric(),
+    scan_median_depth_ge_1 = numeric(),
+    scan_best_contig_id = character(),
+    detected_by_kraken2 = logical(),
+    detected_by_rvdb_read_count = logical(),
+    detected_by_viraquant_scan = logical(),
+    detection_pattern = character(),
+    stringsAsFactors = FALSE
+  )
+}
 comparison <- add_metadata(comparison, metadata)
 
 summarise_group_rank <- function(subset_cmp) {
@@ -482,6 +577,26 @@ for (i in seq_len(nrow(comparison_groups))) {
   }
 }
 comparison_summary <- bind_rows_fill(summary_rows)
+if (!nrow(comparison_summary) && !length(names(comparison_summary))) {
+  comparison_summary <- data.frame(
+    sample_id = character(),
+    host_mapper = character(),
+    virus_mapper = character(),
+    background_rank = character(),
+    background_taxids_total = numeric(),
+    kraken_taxids_total = numeric(),
+    rvdb_taxids_total = numeric(),
+    scan_taxids_total = numeric(),
+    kraken_rvdb_shared_taxids = numeric(),
+    kraken_only_taxids = numeric(),
+    rvdb_only_taxids = numeric(),
+    neither_taxids = numeric(),
+    kraken_total_clade_count = numeric(),
+    rvdb_total_count = numeric(),
+    scan_total_mapped_reads = numeric(),
+    stringsAsFactors = FALSE
+  )
+}
 comparison_summary <- comparison_summary[, c("sample_id", "host_mapper", "virus_mapper", "background_rank", setdiff(names(comparison_summary), c("sample_id", "host_mapper", "virus_mapper", "background_rank"))), drop = FALSE]
 comparison_summary <- add_metadata(comparison_summary, metadata)
 comparison_summary$kraken_detection_fraction <- with(comparison_summary, ifelse(background_taxids_total > 0, kraken_taxids_total / background_taxids_total, NA_real_))
@@ -518,13 +633,11 @@ write_tsv(rvdb_summary, file.path(out_dirs$tables, "08_rvdbv31_summary_rows.tsv"
 log_lines <- c(
   sprintf("Kraken2 files parsed: %d", nrow(kraken_files)),
   sprintf("RVDBv31 read_count files parsed: %d", nrow(rvdb_files)),
-  sprintf("ViraQuant_scan ncbitaxon files parsed: %d", nrow(scan_files)),
-  sprintf("Background file: %s", normalizePath(args$kraken_background, mustWork = TRUE)),
-  sprintf("Selected background ranks: %s", paste(selected_ranks, collapse = ",")),
-  sprintf("Background taxids total after in_rvdb/rank filter: %d", nrow(background_table)),
-  sprintf("Kraken2 fair-background taxid rows parsed: %d", nrow(kraken_rows_fair)),
-  sprintf("RVDBv31 fair-background taxid rows parsed: %d", nrow(rvdb_main_fair)),
-  sprintf("Comparison rows written: %d", nrow(comparison)),
-  sprintf("Count method used: %s", args$count_method)
+  sprintf("ViraQuant scan files parsed: %d", nrow(scan_files)),
+  sprintf("Background ranks selected: %s", paste(selected_ranks, collapse = ",")),
+  sprintf("Background taxids total: %d", nrow(background_table)),
+  sprintf("Kraken fair-background rows: %d", nrow(kraken_rows_fair)),
+  sprintf("RVDB fair-background rows: %d", nrow(rvdb_main_fair)),
+  sprintf("Comparison rows: %d", nrow(comparison))
 )
 write_log_lines(log_lines, file.path(out_dirs$logs, "08_compare_kraken2_rvdb_taxid_fair.log"))
