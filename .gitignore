@@ -36,6 +36,8 @@ cython_debug/
 .DS_Store
 ._*
 ~$*
+*.tmp
+*.temp
 
 # Local sample inputs
 sample_data/
