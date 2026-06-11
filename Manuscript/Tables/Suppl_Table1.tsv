@@ -1,4 +1,4 @@
-host_mapper	median_host_assigned_fraction	median_genes_detected	mean_genes_detected	HISAT2_vs_STAR	bwa_mem_vs_HISAT2	bwa_mem_vs_STAR
-HISAT2	0.893	26162	25678	0.986	0.938	0.934
-STAR	0.887	26132	26092	0.986	0.938	0.934
-bwa_mem	0.995	28909	28585	0.986	0.938	0.934
+host_mapper	median_host_assigned_fraction	median_genes_detected	mean_genes_detected
+HISAT2	0.893	26162	25678
+STAR	0.887	26132	26092
+bwa_mem	0.995	28909	28585

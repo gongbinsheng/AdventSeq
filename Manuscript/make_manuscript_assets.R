@@ -87,7 +87,7 @@ denominators <- read_tsv_q("Analyses/full_run/tables/02_normalization_denominato
 gene <- read_tsv_q("Analyses/full_run/tables/04_gene_detection_summary.tsv") %>%
   filter(include_analysis, count_kind == "count_pairs")
 mapcor <- read_tsv_q("Analyses/full_run/tables/04_mapper_concordance.tsv") %>%
-  filter(include_analysis)
+  filter(include_analysis, count_kind == "count_pairs")
 target <- read_tsv_q("Analyses/full_run/tables/05_targeted_read_count_summary.tsv")
 untarget <- read_tsv_q("Analyses/full_run/tables/05_untargeted_read_count_summary.tsv")
 vq <- read_tsv_q("Analyses/full_run/tables/06_viraquant_sample_summary.tsv")
@@ -287,6 +287,11 @@ coverage_case <- matched %>%
 
 write_tsv_q(coverage_case, "Table3.tsv")
 
+# Per-host-mapper summary (one row per host mapper). Pairwise mapper
+# correlations are a property of mapper PAIRS, not of a single mapper, so they
+# are reported separately (see mapper_pair_correlations below) rather than being
+# cross-joined onto every row, which previously repeated the same value in each
+# row and was confusing/redundant.
 host_support_summary <- assigned_summary %>%
   left_join(
     gene %>%
@@ -297,17 +302,17 @@ host_support_summary <- assigned_summary %>%
         .groups = "drop"
       ),
     by = "host_mapper"
-  ) %>%
-  cross_join(
-    mapcor %>%
-      group_by(mapper_a, mapper_b) %>%
-      summarise(median_spearman = round(median(spearman_cor), 3), .groups = "drop") %>%
-      mutate(comparison = paste(mapper_a, mapper_b, sep = "_vs_")) %>%
-      select(comparison, median_spearman) %>%
-      pivot_wider(names_from = comparison, values_from = median_spearman)
   )
 
+# Pairwise count_pairs mapper concordance (one row per mapper pair).
+mapper_pair_correlations <- mapcor %>%
+  group_by(mapper_a, mapper_b) %>%
+  summarise(median_spearman = round(median(spearman_cor), 3), .groups = "drop") %>%
+  mutate(mapper_pair = paste(mapper_a, mapper_b, sep = " vs ")) %>%
+  select(mapper_pair, median_spearman)
+
 write_tsv_q(host_support_summary, "Suppl_Table1.tsv")
+write_tsv_q(mapper_pair_correlations, "Suppl_Table1_mapper_correlations.tsv")
 write_tsv_q(concordance, "Suppl_Table2.tsv")
 write_tsv_q(
   fastp_extended %>%
