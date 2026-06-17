@@ -18,7 +18,7 @@ Table 2 is assembled from five summary tables:
 - `Analyses/full_run/tables/05_targeted_read_count_summary.tsv`
 - `Analyses/full_run/tables/05_untargeted_read_count_summary.tsv`
 - `Analyses/full_run/tables/06_viraquant_sample_summary.tsv`
-- `Analyses/tables/08_kraken2_rvdbv31_viraquant_scan_taxid_summary.tsv`
+- `Analyses/tables/08_kraken2_rvdbv31_taxid_summary_fair_background.tsv (background_rank == "ALL_SELECTED")`
 
 These contribute the following information:
 
@@ -62,7 +62,7 @@ In `make_manuscript_assets.R`, the script first builds several intermediate summ
    - Pivots control and positive-titration values into separate columns
 
 5. `kraken_summary`
-   - Source: `08_kraken2_rvdbv31_viraquant_scan_taxid_summary.tsv`
+   - Source: `08_kraken2_rvdbv31_taxid_summary_fair_background.tsv (background_rank == "ALL_SELECTED")`
    - Groups by `host_mapper` and `virus_mapper`
    - Takes medians of:
      - `kraken_taxids_total`

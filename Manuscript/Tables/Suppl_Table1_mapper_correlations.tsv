@@ -1,4 +1,0 @@
-mapper_pair	median_spearman
-HISAT2 vs STAR	0.986
-bwa_mem vs HISAT2	0.945
-bwa_mem vs STAR	0.941
