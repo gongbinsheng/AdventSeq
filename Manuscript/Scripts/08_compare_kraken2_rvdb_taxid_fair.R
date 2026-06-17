@@ -17,7 +17,8 @@ args <- resolve_common_args(list(
   host_mapper = "",
   virus_mapper = "",
   kraken_background = "viral.inspect.with_rvdb.tsv.gz",
-  background_ranks = "S,S1,S2"
+  background_ranks = "S,S1,S2",
+  min_rpm = "1"
 ))
 
 if (!(args$count_method %in% c("reads", "pairs"))) {
@@ -49,6 +50,26 @@ if (!length(selected_ranks)) {
 
 metadata <- read_sample_metadata(args$sample_info)
 out_dirs <- prepare_output_dirs(args$output_dir)
+
+# --- Library-size (RPM) normalization for the database-search methods ---
+# To make the cross-method comparison fair, Kraken2 and RVDB read_count detections
+# are normalized by library size (total reads after fastp filtering, which equals
+# denom_total_reads) and required to reach a minimum reads-per-million (RPM)
+# threshold, instead of counting any single mapped read as a detection.
+# ViraQuant_scan keeps its breadth-aware coverage criterion (depth_at_50pct >= 1,
+# applied at parse time) because depth and read counts are different quantities.
+min_rpm <- suppressWarnings(as.numeric(args$min_rpm))
+if (is.na(min_rpm)) min_rpm <- 1
+norm_denoms <- build_normalization_denominators(args$results_dir)
+sample_denom <- if (is.data.frame(norm_denoms) && nrow(norm_denoms)) {
+  unique(norm_denoms[, c("sample_id", "denom_total_reads")])
+} else {
+  data.frame(sample_id = character(), denom_total_reads = numeric(), stringsAsFactors = FALSE)
+}
+lookup_denom_total <- function(sid) {
+  if (!nrow(sample_denom)) return(NA_real_)
+  sample_denom$denom_total_reads[match(sid, sample_denom$sample_id)]
+}
 
 
 read_tsv_maybe_gz <- function(path, ...) {
@@ -167,7 +188,17 @@ parse_viraquant_scan_file <- function(path, sample_id, host_mapper, virus_mapper
   }
 
   keep <- tab$level == "ncbitaxon"
-  if ("mean_depth_ge_1" %in% names(tab)) {
+  # ViraQuant_scan detection criterion: require breadth-aware support via
+  # depth_at_50pct >= 1, i.e. at least half of the reference is covered at >= 1x.
+  # The previous criterion (mean_depth_ge_1 >= 1) was effectively a non-filter,
+  # because mean depth over covered positions is >= 1 whenever any position has
+  # coverage, so it passed essentially every taxid with a single mapped read and
+  # inflated the ViraQuant_scan counts. depth_at_50pct >= 1 removes low-breadth
+  # spurious hits.
+  if ("depth_at_50pct" %in% names(tab)) {
+    tab$depth_at_50pct <- suppressWarnings(as.numeric(tab$depth_at_50pct))
+    keep <- keep & !is.na(tab$depth_at_50pct) & tab$depth_at_50pct >= 1
+  } else if ("mean_depth_ge_1" %in% names(tab)) {
     tab$mean_depth_ge_1 <- suppressWarnings(as.numeric(tab$mean_depth_ge_1))
     keep <- keep & !is.na(tab$mean_depth_ge_1) & tab$mean_depth_ge_1 >= 1
   }
@@ -484,8 +515,20 @@ comparison_rows <- lapply(seq_len(nrow(comparison_groups)), function(i) {
     list(base_bg, kraken_subset, rvdb_subset, scan_subset)
   )
 
-  joined$detected_by_kraken2 <- !is.na(joined$kraken_name)
-  joined$detected_by_rvdb_read_count <- !is.na(joined$rvdb_count)
+  denom_total <- lookup_denom_total(sample_id)
+  joined$denom_total_reads <- denom_total
+  joined$kraken_rpm <- ifelse(
+    !is.na(joined$kraken_clade_count) & !is.na(denom_total) & denom_total > 0,
+    joined$kraken_clade_count * 1e6 / denom_total, NA_real_
+  )
+  joined$rvdb_rpm <- ifelse(
+    !is.na(joined$rvdb_count) & !is.na(denom_total) & denom_total > 0,
+    joined$rvdb_count * 1e6 / denom_total, NA_real_
+  )
+  # Detection: Kraken2 and RVDB require RPM >= min_rpm (library-size normalized);
+  # ViraQuant_scan requires its breadth filter (already applied at parse time).
+  joined$detected_by_kraken2 <- !is.na(joined$kraken_rpm) & joined$kraken_rpm >= min_rpm
+  joined$detected_by_rvdb_read_count <- !is.na(joined$rvdb_rpm) & joined$rvdb_rpm >= min_rpm
   joined$detected_by_viraquant_scan <- if ("scan_mapped_reads" %in% names(joined)) !is.na(joined$scan_mapped_reads) else FALSE
   joined$detection_pattern <- vapply(
     seq_len(nrow(joined)),
@@ -638,6 +681,8 @@ log_lines <- c(
   sprintf("Background taxids total: %d", nrow(background_table)),
   sprintf("Kraken fair-background rows: %d", nrow(kraken_rows_fair)),
   sprintf("RVDB fair-background rows: %d", nrow(rvdb_main_fair)),
-  sprintf("Comparison rows: %d", nrow(comparison))
+  sprintf("Comparison rows: %d", nrow(comparison)),
+  sprintf("Kraken2/RVDB detection threshold: RPM >= %s of denom_total_reads (after_filtering_total_reads)", format(min_rpm)),
+  "ViraQuant_scan detection: depth_at_50pct >= 1 (breadth-aware)"
 )
 write_log_lines(log_lines, file.path(out_dirs$logs, "08_compare_kraken2_rvdb_taxid_fair.log"))

@@ -136,7 +136,12 @@ bind_rows_fill <- function(dfs) {
   dfs <- lapply(dfs, function(df) {
     missing_cols <- setdiff(cols, names(df))
     for (col in missing_cols) {
-      df[[col]] <- NA
+      # Use rep(NA, nrow(df)) rather than a scalar NA: assigning a length-1 value
+      # to a column of a zero-row data.frame errors ("replacement has 1 row, data
+      # has 0"). This happens when some inputs are empty (e.g. a strict scan
+      # filter leaves a per-file table with no rows). rep(NA, 0) -> length-0,
+      # which correctly keeps the frame at zero rows.
+      df[[col]] <- rep(NA, nrow(df))
     }
     df[, cols, drop = FALSE]
   })

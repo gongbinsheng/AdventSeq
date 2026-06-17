@@ -95,11 +95,17 @@ vq_records <- read_tsv_q("Analyses/full_run/tables/06_viraquant_records.tsv") %>
   filter(level == "virus")
 matched <- read_tsv_q("Analyses/full_run/tables/07_read_count_viraquant_matched.tsv")
 concordance <- read_tsv_q("Analyses/full_run/tables/07_virus_level_concordance.tsv")
+# Figure 2B and the untargeted-taxid columns of Table 2 use the FAIR comparison:
+# Kraken2, RVDB read_count, and ViraQuant_scan are each evaluated against the
+# same shared RVDB background taxid set (ranks S/S1/S2) produced by
+# Scripts/08_compare_kraken2_rvdb_taxid_fair.R. We keep the per-sample aggregate
+# across all selected ranks (background_rank == "ALL_SELECTED"), one row per
+# sample / host_mapper / virus_mapper.
 kraken <- read_tsv_q(pick_existing_path(c(
-  "Analyses/tables/08_kraken2_rvdbv31_viraquant_scan_taxid_summary.tsv",
-  "Analyses/full_run/tables/08_kraken2_rvdbv31_viraquant_scan_taxid_summary.tsv"
+  "Analyses/tables/08_kraken2_rvdbv31_taxid_summary_fair_background.tsv",
+  "Analyses/full_run/tables/08_kraken2_rvdbv31_taxid_summary_fair_background.tsv"
 ))) %>%
-  filter(include_analysis)
+  filter(include_analysis, background_rank == "ALL_SELECTED")
 pca_scores <- read_tsv_q("Analyses/full_run/tables/04_host_pca_scores.tsv") %>%
   filter(include_analysis, count_kind == "count_pairs")
 fastp_json_files <- list.files("Results/fastp", pattern = "\\.fastp\\.json$", full.names = TRUE)
@@ -229,15 +235,21 @@ vq_summary <- vq %>%
     values_from = c(median_viraquant_primary, median_viraquant_pass90)
   )
 
+# Fair-background untargeted summary: medians of the per-sample taxid counts that
+# each method recovered from the shared RVDB background set. The fair comparison
+# is defined between Kraken2 and RVDB read_count (the two database-search methods)
+# against that background, so we report their shared / kraken-only / rvdb-only
+# splits; ViraQuant_scan detections on the same background are reported alongside.
 kraken_summary <- kraken %>%
   group_by(host_mapper, virus_mapper) %>%
   summarise(
+    median_background_taxids = round(median(background_taxids_total), 1),
     median_kraken_taxids = round(median(kraken_taxids_total), 1),
     median_rvdb_read_count_taxids = round(median(rvdb_taxids_total), 1),
     median_viraquant_scan_taxids = round(median(scan_taxids_total), 1),
-    median_shared_all_three_taxids = round(median(shared_all_three_taxids), 1),
+    median_kraken_rvdb_shared_taxids = round(median(kraken_rvdb_shared_taxids), 1),
     median_kraken_only_taxids = round(median(kraken_only_taxids), 1),
-    median_shared_all_three_rvdb_fraction = round(median(shared_all_three_rvdb_fraction), 3),
+    median_rvdb_only_taxids = round(median(rvdb_only_taxids), 1),
     .groups = "drop"
   )
 
@@ -287,33 +299,11 @@ coverage_case <- matched %>%
 
 write_tsv_q(coverage_case, "Table3.tsv")
 
-# Per-host-mapper summary (one row per host mapper). Pairwise mapper
-# correlations are a property of mapper PAIRS, not of a single mapper, so they
-# are reported separately (see mapper_pair_correlations below) rather than being
-# cross-joined onto every row, which previously repeated the same value in each
-# row and was confusing/redundant.
-host_support_summary <- assigned_summary %>%
-  left_join(
-    gene %>%
-      group_by(host_mapper) %>%
-      summarise(
-        median_genes_detected = round(median(genes_detected)),
-        mean_genes_detected = round(mean(genes_detected)),
-        .groups = "drop"
-      ),
-    by = "host_mapper"
-  )
-
-# Pairwise count_pairs mapper concordance (one row per mapper pair).
-mapper_pair_correlations <- mapcor %>%
-  group_by(mapper_a, mapper_b) %>%
-  summarise(median_spearman = round(median(spearman_cor), 3), .groups = "drop") %>%
-  mutate(mapper_pair = paste(mapper_a, mapper_b, sep = " vs ")) %>%
-  select(mapper_pair, median_spearman)
-
-write_tsv_q(host_support_summary, "Suppl_Table1.tsv")
-write_tsv_q(mapper_pair_correlations, "Suppl_Table1_mapper_correlations.tsv")
-write_tsv_q(concordance, "Suppl_Table2.tsv")
+# NOTE: former Supplementary Table 1 (host-side mapping/quantification summary +
+# pairwise mapper correlations) and Supplementary Table 2 (virus-level
+# read-count vs ViraQuant concordance) were removed from the manuscript; their
+# few values are now reported directly in the text, so they are no longer
+# written out here. Remaining supplementary-table numbering is unchanged.
 write_tsv_q(
   fastp_extended %>%
     group_by(experiment_protocol) %>%
@@ -385,13 +375,20 @@ plot_untarget <- kraken %>%
   ) +
   scale_fill_manual(values = c("Kraken2" = "#6c757d", "RVDB read_count" = "#d1495b", "ViraQuant_scan" = "#00798c")) +
   scale_color_manual(values = c("Kraken2" = "#6c757d", "RVDB read_count" = "#d1495b", "ViraQuant_scan" = "#00798c")) +
-  scale_y_log10(labels = si_labels) +
+  # Pseudo-log (asinh) y-axis: keeps true counts (zeros plotted at 0, no +1
+  # pseudocount), stays ~linear for small counts so 0/1/2 are distinguishable,
+  # and compresses the wide range (ViraQuant_scan ~0-2 vs RVDB up to ~10^3).
+  scale_y_continuous(
+    trans = scales::pseudo_log_trans(base = 10),
+    breaks = c(0, 1, 3, 10, 30, 100, 300, 1000),
+    labels = label_number(accuracy = 1)
+  ) +
   facet_grid(truth_group ~ virus_mapper) +
   labs(
-    title = "Host subtraction still dominates untargeted taxid inflation in scan mode",
-    subtitle = "At the ncbitaxon level, ViraQuant_scan matched RVDB read_count in this benchmark while Kraken2 diverged by host mapper",
+    title = "Untargeted taxid detection on a shared RVDB background (fair comparison)",
+    subtitle = "Shared ncbitaxon background (ranks S/S1/S2): Kraken2 and RVDB at RPM >= 1 (total-read normalized), ViraQuant_scan at depth_at_50pct >= 1",
     x = "Host mapper",
-    y = "Untargeted taxids detected",
+    y = "Background taxids detected (pseudo-log scale)",
     fill = NULL,
     color = NULL
   ) +
