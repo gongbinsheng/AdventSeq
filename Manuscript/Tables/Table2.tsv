@@ -1,7 +1,7 @@
 host_mapper	virus_mapper	median_target_norm_total_reads_negative_control	median_target_norm_total_reads_positive_titration	median_target_viruses_detected_negative_control	median_target_viruses_detected_positive_titration	median_untarget_norm_total_reads_negative_control	median_untarget_norm_total_reads_positive_titration	median_untarget_taxa_detected_negative_control	median_untarget_taxa_detected_positive_titration	median_viraquant_primary_negative_control	median_viraquant_primary_positive_titration	median_viraquant_pass90_negative_control	median_viraquant_pass90_positive_titration	median_background_taxids	median_kraken_taxids	median_rvdb_read_count_taxids	median_viraquant_scan_taxids	median_kraken_rvdb_shared_taxids	median_kraken_only_taxids	median_rvdb_only_taxids	median_host_assigned_fraction
-bwa_mem	bowtie2	1.926	37.489	6.5	7	132.955	396.795	909	671.5	0.159	0.497	0	1	8469	3.5	6	1	2.5	1	4	0.995
-bwa_mem	bwa_mem	0.511	36.904	2	6	123.448	472.679	429	667	0.028	0.415	0	1	8469	3.5	9	1	2.5	1	6	0.995
-HISAT2	bowtie2	24.667	111.8	6.5	7.5	1078.966	1809.751	1324.5	1412.5	0.879	1.307	0	1	8469	40	21	1	6	34.5	17	0.893
-HISAT2	bwa_mem	205.415	324.762	7.5	8	6712.066	11897.268	8878.5	10164.5	13.903	5.867	0	1	8469	40	158	1	21	20.5	129	0.893
-STAR	bowtie2	33.131	154.001	6	7	6306.7	5260.362	1294.5	1558	2.831	1.871	0	1	8469	71.5	39	1	9	59.5	32	0.887
-STAR	bwa_mem	235.331	431.052	6.5	8	67955.803	34054.33	7884	8550.5	33.557	9.326	0	1	8469	71.5	189	1	30	41.5	160.5	0.887
+bwa_mem	bowtie2	1.926	37.489	6.5	7	132.955	396.795	909	671.5	0.159	0.497	0	1	8469	3.5	6	2	2.5	1	4	0.995
+bwa_mem	bwa_mem	0.511	36.904	2	6	123.448	472.679	429	667	0.028	0.415	0	1	8469	3.5	9	2	2.5	1	6	0.995
+HISAT2	bowtie2	24.667	111.8	6.5	7.5	1078.966	1809.751	1324.5	1412.5	0.879	1.307	0	1	8469	40	21	4	6	34.5	17	0.893
+HISAT2	bwa_mem	205.415	324.762	7.5	8	6712.066	11897.268	8878.5	10164.5	13.903	5.867	0	1	8469	40	158	8	21	20.5	129	0.893
+STAR	bowtie2	33.131	154.001	6	7	6306.7	5260.362	1294.5	1558	2.831	1.871	0	1	8469	71.5	39	6	9	59.5	32	0.887
+STAR	bwa_mem	235.331	431.052	6.5	8	67955.803	34054.33	7884	8550.5	33.557	9.326	0	1	8469	71.5	189	8	30	41.5	160.5	0.887

@@ -299,28 +299,120 @@ coverage_case <- matched %>%
 
 write_tsv_q(coverage_case, "Table3.tsv")
 
-# NOTE: former Supplementary Table 1 (host-side mapping/quantification summary +
-# pairwise mapper correlations) and Supplementary Table 2 (virus-level
-# read-count vs ViraQuant concordance) were removed from the manuscript; their
-# few values are now reported directly in the text, so they are no longer
-# written out here. Remaining supplementary-table numbering is unchanged.
-write_tsv_q(
-  fastp_extended %>%
-    group_by(experiment_protocol) %>%
-    summarise(
-      median_adapter_trimmed_reads_pct = round(median(adapter_trimmed_fraction) * 100, 2),
-      median_polyx_trimmed_reads_pct = round(median(polyx_trimmed_fraction) * 100, 2),
-      median_q20_gain_pct_points = round(median(q20_gain) * 100, 2),
-      median_q30_gain_pct_points = round(median(q30_gain) * 100, 2),
-      median_polyA_share_pct = round(median(polyA_fraction) * 100, 1),
-      median_polyT_share_pct = round(median(polyT_fraction) * 100, 1),
-      median_polyC_share_pct = round(median(polyC_fraction) * 100, 1),
-      median_polyG_share_pct = round(median(polyG_fraction) * 100, 1),
-      .groups = "drop"
-    ) %>%
-    arrange(desc(median_adapter_trimmed_reads_pct)),
-  "Suppl_Table3.tsv"
+# NOTE: former Supplementary Tables 1 and 2 were removed from the manuscript;
+# their few values are now reported directly in the text. Former Supplementary
+# Table 3 (protocol-level fastp QC trimming behavior) has been converted to
+# Supplementary Figure 4 below, so the manuscript now contains no supplementary
+# tables. The per-protocol QC summary is still written out as the figure's
+# source data (Suppl_Figure4_data.tsv) for professional editing / provenance.
+fastp_protocol_summary <- fastp_extended %>%
+  group_by(experiment_protocol) %>%
+  summarise(
+    median_adapter_trimmed_reads_pct = round(median(adapter_trimmed_fraction) * 100, 2),
+    median_polyx_trimmed_reads_pct = round(median(polyx_trimmed_fraction) * 100, 2),
+    median_q20_gain_pct_points = round(median(q20_gain) * 100, 2),
+    median_q30_gain_pct_points = round(median(q30_gain) * 100, 2),
+    median_polyA_share_pct = round(median(polyA_fraction) * 100, 1),
+    median_polyT_share_pct = round(median(polyT_fraction) * 100, 1),
+    median_polyC_share_pct = round(median(polyC_fraction) * 100, 1),
+    median_polyG_share_pct = round(median(polyG_fraction) * 100, 1),
+    .groups = "drop"
+  ) %>%
+  arrange(desc(median_adapter_trimmed_reads_pct))
+
+write_tsv_q(fastp_protocol_summary, "Suppl_Figure4_data.tsv")
+
+# Supplementary Figure 4: protocol-dependent QC trimming behavior (former
+# Suppl Table 3). Three stacked panels share the protocol x-axis (ordered by
+# median adapter-trimmed fraction):
+#   A) adapter- and polyX-trimmed read fractions
+#   B) Q20 / Q30 quality-rate gains after QC
+#   C) composition of polyX-trimmed reads (polyA/T/C/G)
+# Panels are combined as facets so the whole figure renders as a single,
+# print-ready ggplot/PDF (no extra layout packages required).
+sf4_protocol_levels <- fastp_protocol_summary$experiment_protocol
+
+sf4_panels <- c(
+  "A. Reads trimmed (% of total raw reads)",
+  "B. Quality-rate gain after QC (percentage points)",
+  "C. Composition of polyX-trimmed reads (%)"
 )
+
+sf4_series_levels <- c(
+  "Adapter-trimmed", "PolyX-trimmed",
+  "Q20 gain", "Q30 gain",
+  "polyA", "polyT", "polyC", "polyG"
+)
+
+sf4_palette <- c(
+  "Adapter-trimmed" = "#6c757d",
+  "PolyX-trimmed"   = "#00798c",
+  "Q20 gain"        = "#d1495b",
+  "Q30 gain"        = "#edae49",
+  "polyA"           = "#2a9d8f",
+  "polyT"           = "#577590",
+  "polyC"           = "#e76f51",
+  "polyG"           = "#9b5de5"
+)
+
+sf4_long <- bind_rows(
+  fastp_protocol_summary %>%
+    transmute(
+      experiment_protocol,
+      panel = sf4_panels[1],
+      `Adapter-trimmed` = median_adapter_trimmed_reads_pct,
+      `PolyX-trimmed` = median_polyx_trimmed_reads_pct
+    ) %>%
+    pivot_longer(c(`Adapter-trimmed`, `PolyX-trimmed`), names_to = "series", values_to = "value"),
+  fastp_protocol_summary %>%
+    transmute(
+      experiment_protocol,
+      panel = sf4_panels[2],
+      `Q20 gain` = median_q20_gain_pct_points,
+      `Q30 gain` = median_q30_gain_pct_points
+    ) %>%
+    pivot_longer(c(`Q20 gain`, `Q30 gain`), names_to = "series", values_to = "value"),
+  fastp_protocol_summary %>%
+    transmute(
+      experiment_protocol,
+      panel = sf4_panels[3],
+      polyA = median_polyA_share_pct,
+      polyT = median_polyT_share_pct,
+      polyC = median_polyC_share_pct,
+      polyG = median_polyG_share_pct
+    ) %>%
+    pivot_longer(c(polyA, polyT, polyC, polyG), names_to = "series", values_to = "value")
+) %>%
+  mutate(
+    experiment_protocol = factor(experiment_protocol, levels = sf4_protocol_levels),
+    panel = factor(panel, levels = sf4_panels),
+    series = factor(series, levels = sf4_series_levels)
+  )
+
+plot_fastp_qc <- ggplot(sf4_long, aes(x = experiment_protocol, y = value, fill = series)) +
+  geom_col(
+    position = position_dodge2(preserve = "single", padding = 0.1),
+    width = 0.75,
+    color = "grey30",
+    linewidth = 0.15
+  ) +
+  scale_fill_manual(values = sf4_palette, breaks = sf4_series_levels) +
+  facet_wrap(~panel, ncol = 1, scales = "free_y", strip.position = "top") +
+  labs(
+    title = "Protocol-dependent QC trimming, quality gains, and polyX-trimmed read composition",
+    subtitle = "Per-protocol medians from fastp; protocols ordered by median adapter-trimmed fraction",
+    x = "Library-preparation protocol",
+    y = NULL,
+    fill = NULL
+  ) +
+  base_theme +
+  theme(
+    axis.text.x = element_text(angle = 30, hjust = 1),
+    legend.position = "bottom"
+  ) +
+  guides(fill = guide_legend(nrow = 1))
+
+save_plot(plot_fastp_qc, "Suppl_Figure4.pdf", width = 8.5, height = 8.5)
 
 plot_nonhost <- denominators %>%
   mutate(experiment_protocol = factor(experiment_protocol, levels = unique(protocol_summary$experiment_protocol))) %>%
