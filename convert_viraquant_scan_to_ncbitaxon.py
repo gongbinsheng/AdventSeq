@@ -120,6 +120,22 @@ def weighted_median(pairs: list[tuple[float, float]]) -> float | None:
     return usable[-1][0]
 
 
+def maximum(pairs: list[tuple[float, float]]) -> float | None:
+    """Largest per-contig value, ignoring weights (best-contig coverage)."""
+    usable = [value for value, weight in pairs if value is not None and weight > 0]
+    if not usable:
+        return None
+    return max(usable)
+
+
+# Aggregators selectable for the per-contig depth_at_<pct> coverage columns.
+DEPTH_SUMMARY_FUNCS = {
+    "max": maximum,
+    "median": weighted_median,
+    "mean": weighted_mean,
+}
+
+
 def build_output_header(fieldnames: list[str]) -> list[str]:
     if "ncbitaxonname" in fieldnames:
         return list(fieldnames)
@@ -225,6 +241,7 @@ def aggregate_group(
     rows: list[dict],
     output_header: list[str],
     metrics: dict[str, dict | list],
+    depth_summary: str = "max",
 ) -> dict[str, str]:
     best_row = choose_best_contig(rows)
     total_length = sum(row["length_num"] for row in rows)
@@ -293,12 +310,17 @@ def aggregate_group(
         else:
             result[column] = format_pass(1 if frac_value >= (k_percent / 100.0) else 0)
 
+    summarize_depth = DEPTH_SUMMARY_FUNCS[depth_summary]
     for column, _percent in metrics["depth_at"]:
-        result[column] = format_int(
-            weighted_median(
-                [(parse_int(row.get(column)), row["length_num"]) for row in rows]
-            )
+        depth_value = summarize_depth(
+            [(parse_int(row.get(column)), row["length_num"]) for row in rows]
         )
+        # max/median return one of the integer per-contig depths; mean is a
+        # length-weighted average, so emit it as a (possibly fractional) value.
+        if depth_summary == "mean":
+            result[column] = format_compact(depth_value)
+        else:
+            result[column] = format_int(None if depth_value is None else int(depth_value))
 
     result["best_contig_id"] = best_row["seq_id"]
     result["best_contig_mapped_per_bp"] = format_compact(best_row["mapped_per_bp_num"])
@@ -318,7 +340,12 @@ def aggregate_group(
     return result
 
 
-def convert_scan(input_path: str | Path, taxonomy_map_path: str | Path, output_path: str | Path) -> None:
+def convert_scan(
+    input_path: str | Path,
+    taxonomy_map_path: str | Path,
+    output_path: str | Path,
+    depth_summary: str = "max",
+) -> None:
     taxonomy_map = load_json_mapping(taxonomy_map_path)
     fieldnames, contig_rows = load_scan_rows(input_path)
     output_header = build_output_header(fieldnames)
@@ -354,7 +381,9 @@ def convert_scan(input_path: str | Path, taxonomy_map_path: str | Path, output_p
             group_tax_names[ncbitaxon] = None
 
     output_rows = [
-        aggregate_group(ncbitaxon, group_tax_names.get(ncbitaxon), rows, output_header, metrics)
+        aggregate_group(
+            ncbitaxon, group_tax_names.get(ncbitaxon), rows, output_header, metrics, depth_summary
+        )
         for ncbitaxon, rows in grouped_rows.items()
     ]
     output_rows.extend(unresolved_rows)
@@ -377,13 +406,26 @@ def build_parser() -> argparse.ArgumentParser:
         help="Accession-keyed taxonomy map in JSON or JSON.GZ format",
     )
     parser.add_argument("--output", required=True, help="Output TSV or TSV.GZ path")
+    parser.add_argument(
+        "--depth-summary",
+        dest="depth_summary",
+        choices=sorted(DEPTH_SUMMARY_FUNCS),
+        default="max",
+        help=(
+            "How to summarize per-contig depth_at_<pct> coverage-depth columns into the "
+            "ncbitaxon row. 'max' (default) takes the largest per-contig value (best-contig "
+            "coverage); 'median' is the length-weighted median (previous behavior, biased "
+            "toward 0 when most contigs are uncovered); 'mean' is the length-weighted mean. "
+            "This controls the depth_at_50pct breadth signal used for detection in Figure 2B."
+        ),
+    )
     return parser
 
 
 def main() -> None:
     args = build_parser().parse_args()
     try:
-        convert_scan(args.input, args.taxonomy_map, args.output)
+        convert_scan(args.input, args.taxonomy_map, args.output, args.depth_summary)
     except ValueError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         raise SystemExit(2) from exc

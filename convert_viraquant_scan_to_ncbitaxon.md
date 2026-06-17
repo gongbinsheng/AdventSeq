@@ -20,7 +20,7 @@ flowchart TD
     F --> G{"Has usable ncbitaxon?"}
     G -->|Yes| H["Group contigs by ncbitaxon"]
     G -->|No| I["Pass through original contig row<br/>with ncbitaxonname=NA"]
-    H --> J["Recompute grouped metrics<br/>sums, weighted means, weighted medians"]
+    H --> J["Recompute grouped metrics<br/>sums, weighted means, weighted medians,<br/>depth_at_pct via --depth-summary (max/median/mean)"]
     J --> K["Choose best contig by mapped_per_bp"]
     K --> L["Write grouped level=ncbitaxon rows"]
     I --> M["Append unresolved level=contig rows"]
@@ -36,6 +36,10 @@ flowchart TD
   Required accession-keyed taxonomy mapping in `.json` or `.json.gz` format.
 - `--output`
   Required output path in `.tsv` or `.tsv.gz` format.
+- `--depth-summary`
+  Optional. How to summarize the per-contig `depth_at_<pct>pct` coverage-depth
+  columns into the grouped row. One of `max` (default), `median`, or `mean`.
+  See [Choosing a depth summary](#choosing-a-depth-summary) below.
 
 Example:
 
@@ -43,7 +47,8 @@ Example:
 uv run python convert_viraquant_scan_to_ncbitaxon.py \
   --input Manuscript/Results/ViraQuant_scan/sample.ViraQuant_scan.tsv.gz \
   --taxonomy-map sample_data/ncbi_taxonomy_map.json.gz \
-  --output sample.ViraQuant_scan.ncbitaxon.tsv.gz
+  --output sample.ViraQuant_scan.ncbitaxon.tsv.gz \
+  --depth-summary max
 ```
 
 ## Input table requirements
@@ -153,9 +158,46 @@ These fields cannot be reconstructed exactly from `ViraQuant_scan` summary rows 
 - `median_depth_ge_<n>`
   Approximated as a weighted median of contig medians using weight `length * frac_ge_<n>`.
 - `depth_at_<pct>pct`
-  Approximated as a length-weighted median of contig values.
+  Summarized across grouped contigs using the method chosen by `--depth-summary`
+  (`max`, `median`, or `mean`). See [Choosing a depth summary](#choosing-a-depth-summary).
 
 Missing values are read as `NA` and are excluded from weighted computations. If no usable values remain for a grouped field, the output is written as `NA`.
+
+### Choosing a depth summary
+
+The `depth_at_<pct>pct` columns report the read depth at which a given fraction
+of a contig's length is covered, and they drive breadth-based detection
+downstream (for example, the `depth_at_50pct >= 1` criterion used in the
+manuscript's fair method comparison). Because a taxon usually groups many
+contigs of which only one or two carry real signal, the aggregation method
+strongly affects whether the taxon is counted as detected.
+
+- `max` (default)
+  The largest per-contig value (weights ignored). This is the best-contig
+  coverage and is consistent with the best-contig fields. Recommended when the
+  goal is detection: a taxon is reported at the depth of its best-covered
+  contig.
+- `median`
+  The length-weighted median of contig values. This is the historical behavior.
+  It collapses toward `0` whenever most of the grouped length is uncovered, so
+  taxa with a single well-covered contig often summarize to `0` and drop out of
+  breadth-based detection.
+- `mean`
+  The length-weighted mean of contig values, emitted as a (possibly fractional)
+  value. More forgiving than `median` but still diluted by uncovered contigs.
+
+Only the `depth_at_<pct>pct` family is affected by this option. Counts, pooled
+means, `pass_k_*` flags, and best-contig fields are unchanged.
+
+Worked example (Zika virus, taxid 64320, sample `1_S1` HISAT2/bowtie2), where
+the 12 grouped contigs have per-contig `depth_at_50pct` values
+`[8, 0, 0, 0, 0, 0, 8, 0, 1, 0, 0, 0]`:
+
+| `--depth-summary` | grouped `depth_at_50pct` | detected at `>= 1`? |
+| --- | --- | --- |
+| `max` | `8` | yes |
+| `median` | `0` | no |
+| `mean` | `1.43597` | yes |
 
 ## Best-contig fields
 
