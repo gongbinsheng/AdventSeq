@@ -1,10 +1,10 @@
-# taxonomic_classifier.py
+# taxonomy_classifier.py
 
 Classifies reads from a query-name-sorted BAM file into human, virus, discordant, secondary, supplementary, QC-fail, and unmapped outputs.
 
 ## Purpose
 
-`taxonomic_classifier.py` reads a paired-end BAM file and splits alignments into output files based on mapping status and taxonomic origin.
+`taxonomy_classifier.py` reads a paired-end BAM file and splits alignments into output files based on mapping status and taxonomic origin.
 
 The script treats references whose parsed contig name starts with `chr` as human. Non-`chr` references are treated as viral and are looked up in the `contig_info` metadata table to determine the grouping label used for per-virus counting. Viral grouping can use the original `organism`, `ncbitaxon`, or `ncbitaxonname`.
 
@@ -80,7 +80,7 @@ flowchart TD
 Example:
 
 ```bash
-uv run python taxonomic_classifier.py \
+uv run python taxonomy_classifier.py \
   --bam sample.bam \
   --combined_genome combined_genome_name \
   --contig_info sample_data/contig_info.json.gz \

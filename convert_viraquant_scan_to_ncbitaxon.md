@@ -94,7 +94,7 @@ The taxonomy map must be keyed by accession, not full `seq_id`. Example:
 }
 ```
 
-The script parses `seq_id` using the same accession rule as `taxonomic_classifier.py`:
+The script parses `seq_id` using the same accession rule as `taxonomy_classifier.py`:
 
 - if `seq_id` contains pipe-delimited fields, use the third field
 - otherwise use the full `seq_id`
@@ -237,7 +237,7 @@ Grouped best-contig fields are then populated from that chosen row:
   The converter described in this document.
 - `ViraQuant.py`
   Generates the contig-level scan summaries that this converter consumes.
-- `taxonomic_classifier.py`
+- `taxonomy_classifier.py`
   Uses the same accession parsing rule for taxonomy-based grouping.
 - `build_ncbi_taxonomy_map.py`
   Produces accession-keyed taxonomy maps suitable for `--taxonomy-map`.

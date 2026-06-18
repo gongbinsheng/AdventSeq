@@ -420,7 +420,7 @@ All aligners:
   Runs paired-end Kraken2 classification against a selected database.
 
 - `taxomomic_classifier(contig_info, taxonomy_map=None, virus_group_by=None, force=False)`
-  Runs the local `taxonomic_classifier.py` helper against the current BAM.
+  Runs the local `taxonomy_classifier.py` helper against the current BAM.
 
 - `ViraQuant(virus_list=None, top_n=10, scan_by=None, force=False)`
   Runs the local `ViraQuant.py` helper against `sorted_BAM`.

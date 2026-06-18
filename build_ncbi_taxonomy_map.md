@@ -4,7 +4,7 @@ Builds a gzipped JSON mapping from accession to NCBI taxonomy ID, NCBI taxonomy 
 
 ## Purpose
 
-`build_ncbi_taxonomy_map.py` reads the same contig metadata used by `taxonomic_classifier.py`, extracts accession IDs, queries NCBI Entrez E-utilities, and writes an accession-keyed taxonomy mapping file that can be consumed by `taxonomic_classifier.py --taxonomy_map`.
+`build_ncbi_taxonomy_map.py` reads the same contig metadata used by `taxonomy_classifier.py`, extracts accession IDs, queries NCBI Entrez E-utilities, and writes an accession-keyed taxonomy mapping file that can be consumed by `taxonomy_classifier.py --taxonomy_map`.
 
 The output is designed to support taxonomy-based grouping modes in the classifier while preserving the original `organism` field for fallback reporting.
 
@@ -119,7 +119,7 @@ Field meanings:
   - `ncbitaxonname` is written as `null`
   - `organism` is still copied from `contig_info`
 
-This allows `taxonomic_classifier.py` to fall back to `organism` while keeping those fallback counts separate from true taxonomy-resolved groups.
+This allows `taxonomy_classifier.py` to fall back to `organism` while keeping those fallback counts separate from true taxonomy-resolved groups.
 
 ## Runtime behavior and assumptions
 
@@ -132,9 +132,9 @@ This allows `taxonomic_classifier.py` to fall back to `organism` while keeping t
 
 ## Related files
 
-- `taxonomic_classifier.py`
+- `taxonomy_classifier.py`
   Consumes the generated mapping via `--taxonomy_map`.
-- `taxonomic_classifier.md`
+- `taxonomy_classifier.md`
   Documents the classifier’s taxonomy-based grouping and fallback reporting.
 - `convert_rvdb_to_json.py`
   Converts RVDB SQLite input to a gzipped JSON contig metadata file.
