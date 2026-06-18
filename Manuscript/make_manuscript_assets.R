@@ -95,7 +95,7 @@ vq_records <- read_tsv_q("Analyses/full_run/tables/06_viraquant_records.tsv") %>
   filter(level == "virus")
 matched <- read_tsv_q("Analyses/full_run/tables/07_read_count_viraquant_matched.tsv")
 concordance <- read_tsv_q("Analyses/full_run/tables/07_virus_level_concordance.tsv")
-# Figure 2B and the untargeted-taxid columns of Table 2 use the FAIR comparison:
+# Figure 2B and the untargeted-taxid columns of Suppl Table 2 use the FAIR comparison:
 # Kraken2, RVDB read_count, and ViraQuant_scan are each evaluated against the
 # same shared RVDB background taxid set (ranks S/S1/S2) produced by
 # Scripts/08_compare_kraken2_rvdb_taxid_fair.R. We keep the per-sample aggregate
@@ -183,7 +183,7 @@ protocol_summary <- sample_meta %>%
   ) %>%
   arrange(desc(median_after_filtering_reads))
 
-write_tsv_q(protocol_summary, "Table1.tsv")
+write_tsv_q(protocol_summary, "Suppl_Table1.tsv")
 
 assigned_summary <- denominators %>%
   mutate(assigned_fraction = with_itself_and_mate_mapped / after_filtering_total_reads) %>%
@@ -260,7 +260,7 @@ method_summary <- target_summary %>%
   left_join(assigned_summary, by = "host_mapper") %>%
   arrange(match(host_mapper, c("bwa_mem", "HISAT2", "STAR")), virus_mapper)
 
-write_tsv_q(method_summary, "Table2.tsv")
+write_tsv_q(method_summary, "Suppl_Table2.tsv")
 
 coverage_case <- matched %>%
   left_join(
@@ -297,7 +297,7 @@ coverage_case <- matched %>%
     pass_k_90pct_ge_1
   )
 
-write_tsv_q(coverage_case, "Table3.tsv")
+write_tsv_q(coverage_case, "Suppl_Table3.tsv")
 
 # NOTE: former Supplementary Tables 1-3 were removed from the manuscript. The
 # QC / adapter / polyX trimming results are now summarized briefly in the main
