@@ -73,10 +73,10 @@ taxonomy-classifier --help
 
 ### Analysis tools (console commands)
 
-- `viraquant` (`AdVentSeq/ViraQuant.py`) — see [ViraQuant.md](ViraQuant.md)
-- `taxonomy-classifier` (`AdVentSeq/taxonomy_classifier.py`) — see [taxonomy_classifier.md](taxonomy_classifier.md)
-- `build-ncbi-taxonomy-map` (`AdVentSeq/build_ncbi_taxonomy_map.py`) — see [build_ncbi_taxonomy_map.md](build_ncbi_taxonomy_map.md)
+- `viraquant` (`AdVentSeq/ViraQuant.py`) — see [AdVentSeq/ViraQuant.md](AdVentSeq/ViraQuant.md)
+- `taxonomy-classifier` (`AdVentSeq/taxonomy_classifier.py`) — see [AdVentSeq/taxonomy_classifier.md](AdVentSeq/taxonomy_classifier.md)
+- `build-ncbi-taxonomy-map` (`AdVentSeq/build_ncbi_taxonomy_map.py`) — see [AdVentSeq/build_ncbi_taxonomy_map.md](AdVentSeq/build_ncbi_taxonomy_map.md)
 - `convert-viraquant-scan-to-ncbitaxon` (`AdVentSeq/convert_viraquant_scan_to_ncbitaxon.py`) — see
-  [convert_viraquant_scan_to_ncbitaxon.md](convert_viraquant_scan_to_ncbitaxon.md)
+  [AdVentSeq/convert_viraquant_scan_to_ncbitaxon.md](AdVentSeq/convert_viraquant_scan_to_ncbitaxon.md)
 - `convert-rvdb-to-json` (`AdVentSeq/convert_rvdb_to_json.py`)
 - `add-rvdb-columns` (`AdVentSeq/add_rvdb_columns.py`)

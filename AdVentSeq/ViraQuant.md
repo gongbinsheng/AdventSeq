@@ -13,7 +13,7 @@ Output is a **single TSV** with a `level` column (`contig` or `virus`), plus a c
 
 ## Requirements
 
-- The `AdVentSeq` conda environment (Python 3.12+ with `pysam`); see the main [README.md](README.md) for setup. Activate it first: `conda activate AdVentSeq`.
+- The `AdVentSeq` conda environment (Python 3.12+ with `pysam`); see the main [README.md](../README.md) for setup. Activate it first: `conda activate AdVentSeq`.
 - Input BAM must be:
   - coordinate-sorted
   - indexed (`.bai` present)
