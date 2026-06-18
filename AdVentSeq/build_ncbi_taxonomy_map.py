@@ -13,7 +13,7 @@ from urllib.parse import urlencode
 from urllib.request import urlopen
 import xml.etree.ElementTree as ET
 
-from contig_info_utils import load_contig_info
+from AdVentSeq.contig_info_utils import load_contig_info
 
 try:
     from tqdm import tqdm

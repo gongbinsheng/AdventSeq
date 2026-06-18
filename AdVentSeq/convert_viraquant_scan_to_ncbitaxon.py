@@ -18,7 +18,7 @@ from collections import defaultdict
 from pathlib import Path
 import re
 
-from contig_info_utils import load_json_mapping
+from AdVentSeq.contig_info_utils import load_json_mapping
 
 
 NA_TOKEN = "NA"

@@ -10,6 +10,14 @@ dependencies = [
     "pyyaml>=6.0.2",
 ]
 
+[project.scripts]
+viraquant = "AdVentSeq.ViraQuant:main"
+taxonomy-classifier = "AdVentSeq.taxonomy_classifier:main"
+build-ncbi-taxonomy-map = "AdVentSeq.build_ncbi_taxonomy_map:main"
+convert-viraquant-scan-to-ncbitaxon = "AdVentSeq.convert_viraquant_scan_to_ncbitaxon:main"
+convert-rvdb-to-json = "AdVentSeq.convert_rvdb_to_json:main"
+add-rvdb-columns = "AdVentSeq.add_rvdb_columns:main"
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
