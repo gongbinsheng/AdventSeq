@@ -1449,7 +1449,7 @@ class Pipeline:
         batch.append('conda activate %s\n\n' % self.envs4steps[fn_name])
         self.required_conda_envs.add(self.envs4steps[fn_name])  # add env name to required env list
         # commands
-        batch.append('python /account001/bgong/workspace/AdVentSeq/taxonomy_classifier.py \\\n')
+        batch.append('taxonomy-classifier \\\n')
         batch.append('    --bam "${BAM}" \\\n')
         batch.append('    --combined_genome %s \\\n' % self.ref_genome)
         if taxonomy_map:
@@ -1948,7 +1948,7 @@ class Pipeline:
         batch.append('conda activate %s\n\n' % self.envs4steps[fn_name])
         self.required_conda_envs.add(self.envs4steps[fn_name])  # add env name to required env list
         # commands
-        batch.append('python /account001/bgong/workspace/AdVentSeq/ViraQuant.py \\\n')
+        batch.append('viraquant \\\n')
         batch.append('    --bam "${sorted_BAM}" \\\n')
         if scan_by:
             batch.append(f'    --scan-by "{scan_by}" \\\n')
