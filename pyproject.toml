@@ -11,10 +11,10 @@ dependencies = [
 ]
 
 [project.scripts]
-viraquant = "AdVentSeq.ViraQuant:main"
-taxonomy-classifier = "AdVentSeq.taxonomy_classifier:main"
+ViraQuant = "AdVentSeq.ViraQuant:main"
+TaxonomyClassifier = "AdVentSeq.TaxonomyClassifier:main"
 build-ncbi-taxonomy-map = "AdVentSeq.build_ncbi_taxonomy_map:main"
-convert-viraquant-scan-to-ncbitaxon = "AdVentSeq.convert_viraquant_scan_to_ncbitaxon:main"
+convert-ViraQuant-scan-to-ncbitaxon = "AdVentSeq.convert_ViraQuant_scan_to_ncbitaxon:main"
 convert-rvdb-to-json = "AdVentSeq.convert_rvdb_to_json:main"
 add-rvdb-columns = "AdVentSeq.add_rvdb_columns:main"
 

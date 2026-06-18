@@ -1,10 +1,10 @@
-# convert_viraquant_scan_to_ncbitaxon.py
+# convert_ViraQuant_scan_to_ncbitaxon.py
 
 ## Overview
 
 Converts a `ViraQuant_scan` contig-level TSV into an `ncbitaxon`-grouped summary using an accession-keyed NCBI taxonomy mapping.
 
-`convert_viraquant_scan_to_ncbitaxon.py` reads one `ViraQuant_scan.tsv` or `ViraQuant_scan.tsv.gz` file, extracts the accession from each contig `seq_id`, looks that accession up in a taxonomy map, and groups contigs that share the same `ncbitaxon`. The script is designed for post-processing existing `ViraQuant_scan` outputs without going back to BAMs or per-position depth histograms. Because the scan TSV already contains summary statistics rather than raw depth distributions, some grouped metrics are exact recomputations while others are documented TSV-only approximations.
+`convert_ViraQuant_scan_to_ncbitaxon.py` reads one `ViraQuant_scan.tsv` or `ViraQuant_scan.tsv.gz` file, extracts the accession from each contig `seq_id`, looks that accession up in a taxonomy map, and groups contigs that share the same `ncbitaxon`. The script is designed for post-processing existing `ViraQuant_scan` outputs without going back to BAMs or per-position depth histograms. Because the scan TSV already contains summary statistics rather than raw depth distributions, some grouped metrics are exact recomputations while others are documented TSV-only approximations.
 
 ```mermaid
 flowchart TD
@@ -27,13 +27,13 @@ flowchart TD
 ## Requirements
 
 - The `AdVentSeq` conda environment (see the main [README.md](../README.md) for setup). Activate it first: `conda activate AdVentSeq`.
-- This is a standalone script; run it directly with `python convert_viraquant_scan_to_ncbitaxon.py ...`.
+- This is a standalone script; run it directly with `python convert_ViraQuant_scan_to_ncbitaxon.py ...`.
 - The converter operates on existing scan TSVs only; it does not reopen BAMs or recompute exact pooled depth distributions.
 
 ## Usage
 
 ```bash
-python convert_viraquant_scan_to_ncbitaxon.py \
+python convert_ViraQuant_scan_to_ncbitaxon.py \
   --input <ViraQuant_scan.tsv[.gz]> \
   --taxonomy-map <taxonomy_map.json[.gz]> \
   --output <out.tsv[.gz]> \
@@ -96,7 +96,7 @@ The taxonomy map must be keyed by accession, not full `seq_id`. Example:
 }
 ```
 
-The script parses `seq_id` using the same accession rule as `taxonomy_classifier.py`:
+The script parses `seq_id` using the same accession rule as `TaxonomyClassifier.py`:
 
 - if `seq_id` contains pipe-delimited fields, use the third field
 - otherwise use the full `seq_id`
@@ -195,7 +195,7 @@ Grouped best-contig fields are then populated from that chosen row:
 ## Examples
 
 ```bash
-python convert_viraquant_scan_to_ncbitaxon.py \
+python convert_ViraQuant_scan_to_ncbitaxon.py \
   --input Manuscript/Results/ViraQuant_scan/sample.ViraQuant_scan.tsv.gz \
   --taxonomy-map sample_data/ncbi_taxonomy_map.json.gz \
   --output sample.ViraQuant_scan.ncbitaxon.tsv.gz \
@@ -217,7 +217,7 @@ python convert_viraquant_scan_to_ncbitaxon.py \
 
 - `ViraQuant.py`
   Generates the contig-level scan summaries that this converter consumes.
-- `taxonomy_classifier.py`
+- `TaxonomyClassifier.py`
   Uses the same accession parsing rule for taxonomy-based grouping.
 - `build_ncbi_taxonomy_map.py`
   Produces accession-keyed taxonomy maps suitable for `--taxonomy-map`.

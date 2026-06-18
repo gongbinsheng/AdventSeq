@@ -288,9 +288,9 @@ For quantification-like interpretation:
 
 ## Related files
 
-- `taxonomy_classifier.py`
+- `TaxonomyClassifier.py`
   Splits a BAM into human/virus/discordant outputs before quantification.
-- `convert_viraquant_scan_to_ncbitaxon.py`
+- `convert_ViraQuant_scan_to_ncbitaxon.py`
   Groups a ViraQuant scan TSV by `ncbitaxon`.
 - `build_ncbi_taxonomy_map.py`
   Produces the accession-keyed taxonomy maps used downstream.

@@ -2,7 +2,7 @@
 
 AdVentSeq is an HPC pipeline builder and viral-quantification toolkit for sequencing data. The
 `Pipeline` class is provided as an importable Python package, while the analysis tools
-(`ViraQuant.py`, `taxonomy_classifier.py`, and the helpers) are standalone scripts.
+(`ViraQuant.py`, `TaxonomyClassifier.py`, and the helpers) are standalone scripts.
 
 ## Installation
 
@@ -17,7 +17,7 @@ pip install -e .
 
 This installs the importable `AdVentSeq` package (the `Pipeline` class) along with its runtime
 dependencies (`pysam`, `tqdm`, `pyyaml`). It also registers the analysis tools as console commands
-(`viraquant`, `taxonomy-classifier`, etc.) on your `PATH`, so they can be run from any directory
+(`ViraQuant`, `TaxonomyClassifier`, etc.) on your `PATH`, so they can be run from any directory
 while the environment is active.
 
 ## Basic usage
@@ -60,8 +60,8 @@ environment is active:
 
 ```bash
 conda activate AdVentSeq
-viraquant --help
-taxonomy-classifier --help
+ViraQuant --help
+TaxonomyClassifier --help
 ```
 
 ## Documentation
@@ -73,10 +73,10 @@ taxonomy-classifier --help
 
 ### Analysis tools (console commands)
 
-- `viraquant` (`AdVentSeq/ViraQuant.py`) — see [AdVentSeq/ViraQuant.md](AdVentSeq/ViraQuant.md)
-- `taxonomy-classifier` (`AdVentSeq/taxonomy_classifier.py`) — see [AdVentSeq/taxonomy_classifier.md](AdVentSeq/taxonomy_classifier.md)
+- `ViraQuant` (`AdVentSeq/ViraQuant.py`) — see [AdVentSeq/ViraQuant.md](AdVentSeq/ViraQuant.md)
+- `TaxonomyClassifier` (`AdVentSeq/TaxonomyClassifier.py`) — see [AdVentSeq/TaxonomyClassifier.md](AdVentSeq/TaxonomyClassifier.md)
 - `build-ncbi-taxonomy-map` (`AdVentSeq/build_ncbi_taxonomy_map.py`) — see [AdVentSeq/build_ncbi_taxonomy_map.md](AdVentSeq/build_ncbi_taxonomy_map.md)
-- `convert-viraquant-scan-to-ncbitaxon` (`AdVentSeq/convert_viraquant_scan_to_ncbitaxon.py`) — see
-  [AdVentSeq/convert_viraquant_scan_to_ncbitaxon.md](AdVentSeq/convert_viraquant_scan_to_ncbitaxon.md)
+- `convert-ViraQuant-scan-to-ncbitaxon` (`AdVentSeq/convert_ViraQuant_scan_to_ncbitaxon.py`) — see
+  [AdVentSeq/convert_ViraQuant_scan_to_ncbitaxon.md](AdVentSeq/convert_ViraQuant_scan_to_ncbitaxon.md)
 - `convert-rvdb-to-json` (`AdVentSeq/convert_rvdb_to_json.py`)
 - `add-rvdb-columns` (`AdVentSeq/add_rvdb_columns.py`)

@@ -4,7 +4,7 @@
 
 Builds a gzipped JSON mapping from accession to NCBI taxonomy ID, NCBI taxonomy name, and the original organism label from `contig_info`.
 
-`build_ncbi_taxonomy_map.py` reads the same contig metadata used by `taxonomy_classifier.py`, extracts accession IDs, queries NCBI Entrez E-utilities, and writes an accession-keyed taxonomy mapping file that can be consumed by `taxonomy_classifier.py --taxonomy_map`. The output is designed to support taxonomy-based grouping modes in the classifier while preserving the original `organism` field for fallback reporting.
+`build_ncbi_taxonomy_map.py` reads the same contig metadata used by `TaxonomyClassifier.py`, extracts accession IDs, queries NCBI Entrez E-utilities, and writes an accession-keyed taxonomy mapping file that can be consumed by `TaxonomyClassifier.py --taxonomy_map`. The output is designed to support taxonomy-based grouping modes in the classifier while preserving the original `organism` field for fallback reporting.
 
 ```mermaid
 flowchart TD
@@ -126,7 +126,7 @@ Cache and resume behavior:
 Missing data behavior:
 
 - If NCBI returns no taxonomy ID for an accession, the script still writes that accession to the output, with `ncbitaxon` and `ncbitaxonname` written as `null` while `organism` is still copied from `contig_info`.
-- This allows `taxonomy_classifier.py` to fall back to `organism` while keeping those fallback counts separate from true taxonomy-resolved groups.
+- This allows `TaxonomyClassifier.py` to fall back to `organism` while keeping those fallback counts separate from true taxonomy-resolved groups.
 
 Other runtime notes:
 
@@ -136,9 +136,9 @@ Other runtime notes:
 
 ## Related files
 
-- `taxonomy_classifier.py`
+- `TaxonomyClassifier.py`
   Consumes the generated mapping via `--taxonomy_map`.
-- `taxonomy_classifier.md`
+- `TaxonomyClassifier.md`
   Documents the classifier's taxonomy-based grouping and fallback reporting.
 - `convert_rvdb_to_json.py`
   Converts RVDB SQLite input to a gzipped JSON contig metadata file.

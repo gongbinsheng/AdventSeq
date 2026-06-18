@@ -1,10 +1,10 @@
-# taxonomy_classifier.py
+# TaxonomyClassifier.py
 
 ## Overview
 
 Classifies reads from a query-name-sorted BAM file into human, virus, discordant, secondary, supplementary, QC-fail, and unmapped outputs.
 
-`taxonomy_classifier.py` reads a paired-end BAM file and splits alignments into output files based on mapping status and taxonomic origin. The script treats references whose parsed contig name starts with `chr` as human. Non-`chr` references are treated as viral and are looked up in the `contig_info` metadata table to determine the grouping label used for per-virus counting. Viral grouping can use the original `organism`, `ncbitaxon`, or `ncbitaxonname`.
+`TaxonomyClassifier.py` reads a paired-end BAM file and splits alignments into output files based on mapping status and taxonomic origin. The script treats references whose parsed contig name starts with `chr` as human. Non-`chr` references are treated as viral and are looked up in the `contig_info` metadata table to determine the grouping label used for per-virus counting. Viral grouping can use the original `organism`, `ncbitaxon`, or `ncbitaxonname`.
 
 ```mermaid
 flowchart TD
@@ -55,12 +55,12 @@ flowchart TD
 
 - The `AdVentSeq` conda environment (see the main [README.md](../README.md) for setup). Activate it first: `conda activate AdVentSeq`.
 - Input BAM must be sorted by query name.
-- This is a standalone script; run it directly with `python taxonomy_classifier.py ...`.
+- This is a standalone script; run it directly with `python TaxonomyClassifier.py ...`.
 
 ## Usage
 
 ```bash
-python taxonomy_classifier.py \
+python TaxonomyClassifier.py \
   --bam <query-name-sorted BAM> \
   --combined_genome <combined genome name> \
   --contig_info <contig_info file> \
@@ -193,7 +193,7 @@ The `*.read_count.txt` report is tab-delimited and includes:
 ## Examples
 
 ```bash
-python taxonomy_classifier.py \
+python TaxonomyClassifier.py \
   --bam sample.bam \
   --combined_genome combined_genome_name \
   --contig_info sample_data/contig_info.json.gz \

@@ -192,7 +192,7 @@ All aligners require FASTQ input, set `mapper`, write runtime information into `
 
 - `remove_read_pairs_mapped_to_host(use_samtools=True, force=False)` — Extracts paired reads that remain unmapped to the host from `BAM`, writes new FASTQ files, and resets `SID`, `FASTQ_R1`, and `FASTQ_R2` for downstream classification.
 - `Kraken2(db_name="standard", kraken2_db_root="/galaxy001/Resources/Kraken2DB", force=False)` — Runs paired-end Kraken2 classification against a selected database.
-- `taxomomic_classifier(contig_info, taxonomy_map=None, virus_group_by=None, force=False)` — Runs the local `taxonomy_classifier.py` helper against the current BAM.
+- `taxomomic_classifier(contig_info, taxonomy_map=None, virus_group_by=None, force=False)` — Runs the local `TaxonomyClassifier.py` helper against the current BAM.
 - `ViraQuant(virus_list=None, top_n=10, scan_by=None, force=False)` — Runs the local `ViraQuant.py` helper against `sorted_BAM`.
 
 **Quantification**
