@@ -49,7 +49,7 @@ Manuscript/Results/
 Manuscript/sample_data/
 Manuscript/*.pptx
 Manuscript/Rplots.pdf
-!Manuscript/Scripts/
+Manuscript/Scripts/
 
 # Tests
 tests/*
