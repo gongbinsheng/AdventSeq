@@ -1,14 +1,10 @@
 # build_ncbi_taxonomy_map.py
 
+## Overview
+
 Builds a gzipped JSON mapping from accession to NCBI taxonomy ID, NCBI taxonomy name, and the original organism label from `contig_info`.
 
-## Purpose
-
-`build_ncbi_taxonomy_map.py` reads the same contig metadata used by `taxonomy_classifier.py`, extracts accession IDs, queries NCBI Entrez E-utilities, and writes an accession-keyed taxonomy mapping file that can be consumed by `taxonomy_classifier.py --taxonomy_map`.
-
-The output is designed to support taxonomy-based grouping modes in the classifier while preserving the original `organism` field for fallback reporting.
-
-## Workflow and data flow
+`build_ncbi_taxonomy_map.py` reads the same contig metadata used by `taxonomy_classifier.py`, extracts accession IDs, queries NCBI Entrez E-utilities, and writes an accession-keyed taxonomy mapping file that can be consumed by `taxonomy_classifier.py --taxonomy_map`. The output is designed to support taxonomy-based grouping modes in the classifier while preserving the original `organism` field for fallback reporting.
 
 ```mermaid
 flowchart TD
@@ -25,7 +21,22 @@ flowchart TD
     I --> J["Write --out as JSON.gz"]
 ```
 
-## Command line arguments
+## Requirements
+
+- The `AdVentSeq` conda environment (see the main [README.md](README.md) for setup). Activate it first: `conda activate AdVentSeq`.
+- Network access to reach NCBI E-utilities.
+- This is a standalone script; run it directly with `python build_ncbi_taxonomy_map.py ...`.
+
+## Usage
+
+```bash
+python build_ncbi_taxonomy_map.py \
+  --contig_info <contig_info file> \
+  --email <your email> \
+  --out <output.json.gz>
+```
+
+## Arguments / API
 
 - `--contig_info`
   Required contig metadata source. Supported formats are:
@@ -42,17 +53,7 @@ flowchart TD
 - `--retry`
   Optional retry count for each failed NCBI request. Defaults to `3`.
 
-Example:
-
-```bash
-uv run python build_ncbi_taxonomy_map.py \
-  --contig_info sample_data/contig_info.json.gz \
-  --email Binsheng.Gong@fda.hhs.gov \
-  --retry 3 \
-  --out sample_data/ncbi_taxonomy_map.json.gz
-```
-
-## `contig_info` input format
+## Inputs
 
 The script reads `--contig_info` into memory as a dictionary keyed by accession.
 
@@ -71,7 +72,7 @@ For JSON input, the expected shape is:
 
 For SQLite input, the script expects an RVDB-style database with a table named `rvdb` and a column named `accs`.
 
-## Output format
+## Outputs
 
 The output file is a JSON object keyed by accession:
 
@@ -94,7 +95,19 @@ Field meanings:
 - `organism`
   The original `organism` value from `contig_info`, preserved for fallback behavior in downstream tools.
 
-## NCBI lookup behavior
+## Examples
+
+```bash
+python build_ncbi_taxonomy_map.py \
+  --contig_info sample_data/contig_info.json.gz \
+  --email Binsheng.Gong@fda.hhs.gov \
+  --retry 3 \
+  --out sample_data/ncbi_taxonomy_map.json.gz
+```
+
+## Notes / Caveats
+
+NCBI lookup behavior:
 
 - Accessions are queried in batches against NCBI `nuccore` using `esummary.fcgi`.
 - Taxonomy IDs returned from `nuccore` are then resolved to current scientific names using NCBI `taxonomy` via `efetch.fcgi`.
@@ -102,39 +115,30 @@ Field meanings:
 - Each network request is retried up to `--retry` times before the script exits with an error.
 - Both the `nuccore` phase and the taxonomy phase display progress bars.
 
-## Cache and resume behavior
+Cache and resume behavior:
 
-- The script writes successful batch results into a cache directory derived from `--out`.
-  For example, `ncbi_taxonomy_map.json.gz` uses a sibling cache folder named `ncbi_taxonomy_map.cache`.
+- The script writes successful batch results into a cache directory derived from `--out`. For example, `ncbi_taxonomy_map.json.gz` uses a sibling cache folder named `ncbi_taxonomy_map.cache`.
 - `nuccore` and taxonomy batch results are cached separately.
 - Cached batches are reused on rerun, so if the script stops partway through a large job it can resume from the completed batches instead of re-querying everything.
 - Only successful batch results are cached.
-- The cache directory is deleted automatically after a successful completed run.
+- The cache directory is deleted automatically after a successful completed run. If the run fails, the cache directory is left in place so the next run can resume from completed batches.
 
-## Missing data behavior
+Missing data behavior:
 
-- If NCBI returns no taxonomy ID for an accession, the script still writes that accession to the output.
-- In unresolved cases:
-  - `ncbitaxon` is written as `null`
-  - `ncbitaxonname` is written as `null`
-  - `organism` is still copied from `contig_info`
+- If NCBI returns no taxonomy ID for an accession, the script still writes that accession to the output, with `ncbitaxon` and `ncbitaxonname` written as `null` while `organism` is still copied from `contig_info`.
+- This allows `taxonomy_classifier.py` to fall back to `organism` while keeping those fallback counts separate from true taxonomy-resolved groups.
 
-This allows `taxonomy_classifier.py` to fall back to `organism` while keeping those fallback counts separate from true taxonomy-resolved groups.
-
-## Runtime behavior and assumptions
+Other runtime notes:
 
 - The full `contig_info` dataset is loaded into memory before NCBI queries begin.
 - The script uses batch size `200` internally for NCBI requests.
 - The script prints the output path on success.
-- The script currently requires network access to reach NCBI E-utilities.
-- If the run fails, the cache directory is left in place so the next run can resume from completed batches.
-- This project uses `uv` for Python commands. Run the script with `uv run python ...`.
 
 ## Related files
 
 - `taxonomy_classifier.py`
   Consumes the generated mapping via `--taxonomy_map`.
 - `taxonomy_classifier.md`
-  Documents the classifier’s taxonomy-based grouping and fallback reporting.
+  Documents the classifier's taxonomy-based grouping and fallback reporting.
 - `convert_rvdb_to_json.py`
   Converts RVDB SQLite input to a gzipped JSON contig metadata file.

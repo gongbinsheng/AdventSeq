@@ -86,7 +86,7 @@ def parse_gtf(file_path):
             }
             yield gtf_record
 
-DEFAULT_ENV_CONFIG = Path(__file__).with_name("pipeline_settings.yml")
+DEFAULT_ENV_CONFIG = Path(__file__).with_name("pipeline_settings.yml.example")
 
 
 def _normalize_path(path):
