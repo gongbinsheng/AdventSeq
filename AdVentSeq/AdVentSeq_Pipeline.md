@@ -192,7 +192,7 @@ All aligners require FASTQ input, set `mapper`, write runtime information into `
 
 - `remove_read_pairs_mapped_to_host(use_samtools=True, force=False)` — Extracts paired reads that remain unmapped to the host from `BAM`, writes new FASTQ files, and resets `SID`, `FASTQ_R1`, and `FASTQ_R2` for downstream classification.
 - `Kraken2(db_name="standard", kraken2_db_root="/galaxy001/Resources/Kraken2DB", force=False)` — Runs paired-end Kraken2 classification against a selected database.
-- `taxomomic_classifier(contig_info, taxonomy_map=None, virus_group_by=None, force=False)` — Runs the local `TaxonomyClassifier.py` helper against the current BAM.
+- `TaxonomyClassifier(contig_info, taxonomy_map=None, virus_group_by=None, force=False)` — Runs the `TaxonomyClassifier` console command against the current BAM.
 - `ViraQuant(virus_list=None, top_n=10, scan_by=None, force=False)` — Runs the local `ViraQuant.py` helper against `sorted_BAM`.
 
 **Quantification**
@@ -347,8 +347,7 @@ If you prefer Slurm, replace `set_qsub_parameters()` with `set_slurm_parameters(
 ## Notes / Caveats
 
 - The module exits with `sys.exit(...)` for most validation failures, so callers should expect hard-stop behavior rather than recoverable exceptions.
-- Several steps assume external absolute paths such as `/account001/bgong/...` or `/galaxy001/Resources/...`. Those paths may need to be adapted for another environment. The `taxomomic_classifier()` and `ViraQuant()` step methods also generate commands that invoke the standalone scripts by absolute path; adjust those paths for your environment.
-- The method name `taxomomic_classifier` contains a typo in the source and in the YAML mapping. Any config must use the same spelling.
+- Several steps assume external absolute paths such as `/account001/bgong/...` or `/galaxy001/Resources/...`. Those paths may need to be adapted for another environment. The `TaxonomyClassifier()` and `ViraQuant()` step methods generate commands that invoke the installed `TaxonomyClassifier` and `ViraQuant` console commands, which must be available on `PATH` in the conda env those steps activate.
 - `coverage_from_BigWig(bed_file, ...)` currently ignores its `bed_file` argument when building the command block.
 - `MultiQC()` removes and recreates its output directory before running.
 - `fastp()` is written with FASTQ input in mind and is not intended for BAM input.

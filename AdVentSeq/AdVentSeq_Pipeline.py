@@ -1439,7 +1439,7 @@ class Pipeline:
         self.batch[step_id].extend(batch)
 
 
-    def taxomomic_classifier(self, contig_info, taxonomy_map=None, virus_group_by=None,force=False):
+    def TaxonomyClassifier(self, contig_info, taxonomy_map=None, virus_group_by=None,force=False):
         batch = []
         fn_name = inspect.currentframe().f_code.co_name  # get the name of the function
         step_id = self.__current_step_id + "|" + fn_name

@@ -24,7 +24,7 @@ envs4steps:
   BAM2BigWig: deepTools
   __BAM_to_proper_paired_FASTQ_of_a_contig: samtools
   SPAdes: SPAdes
-  taxomomic_classifier: AdVentSeq
+  TaxonomyClassifier: AdVentSeq
   ViraQuant: AdVentSeq
   GATK4_Mutect2: gatk
 
