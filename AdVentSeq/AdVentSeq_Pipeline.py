@@ -17,32 +17,19 @@ def list_files_with_extensions(folder_path, extensions):
     return file_list
 
 class OrderedDefaultDict(defaultdict):
+    """Insertion-ordered defaultdict.
+
+    Kept for backward compatibility. A plain ``defaultdict`` already preserves
+    insertion order (Python >= 3.7) and exposes correct keys()/values()/items()
+    as C-level views over the real dict, so no custom key tracking is needed.
+    The previous implementation mirrored keys in a separate ``_keys`` list that
+    silently desynced whenever the dict was populated without going through the
+    Python-level ``__setitem__`` (e.g. copy.copy, dict.update, ``|=``).
+    """
     def __init__(self, default_factory=None, *args, **kwargs):
-        if default_factory and not callable(default_factory):
-            raise TypeError("first argument must be callable")
+        if default_factory is not None and not callable(default_factory):
+            raise TypeError("first argument must be callable or None")
         super(OrderedDefaultDict, self).__init__(default_factory, *args, **kwargs)
-        self._keys = []
-
-    def __setitem__(self, key, value):
-        if key not in self:
-            self._keys.append(key)
-        super(OrderedDefaultDict, self).__setitem__(key, value)
-
-    def __delitem__(self, key):
-        super(OrderedDefaultDict, self).__delitem__(key)
-        self._keys.remove(key)
-
-    def __iter__(self):
-        return iter(self._keys)
-
-    def keys(self):
-        return list(self._keys)
-
-    def values(self):
-        return [self[key] for key in self._keys]
-
-    def items(self):
-        return [(key, self[key]) for key in self._keys]
 
 def is_valid_DNA_sequence(s: object) -> bool:
     if not isinstance(s, str):
