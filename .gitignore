@@ -42,14 +42,8 @@ cython_debug/
 # Local sample inputs
 sample_data/
 
-# Manuscript
-Manuscript/Analyses/
-Manuscript/Exploration/
-Manuscript/Results/
-Manuscript/sample_data/
-Manuscript/*.pptx
-Manuscript/Rplots.pdf
-Manuscript/Scripts/
+# Manuscript (kept on dedicated Manuscript branch; ignored on main)
+Manuscript/
 
 # Tests
 tests/*
