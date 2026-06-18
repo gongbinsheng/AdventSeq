@@ -16,21 +16,6 @@ def list_files_with_extensions(folder_path, extensions):
             file_list.extend(list_files_with_extensions(item, extensions))
     return file_list
 
-class OrderedDefaultDict(defaultdict):
-    """Insertion-ordered defaultdict.
-
-    Kept for backward compatibility. A plain ``defaultdict`` already preserves
-    insertion order (Python >= 3.7) and exposes correct keys()/values()/items()
-    as C-level views over the real dict, so no custom key tracking is needed.
-    The previous implementation mirrored keys in a separate ``_keys`` list that
-    silently desynced whenever the dict was populated without going through the
-    Python-level ``__setitem__`` (e.g. copy.copy, dict.update, ``|=``).
-    """
-    def __init__(self, default_factory=None, *args, **kwargs):
-        if default_factory is not None and not callable(default_factory):
-            raise TypeError("first argument must be callable or None")
-        super(OrderedDefaultDict, self).__init__(default_factory, *args, **kwargs)
-
 def is_valid_DNA_sequence(s: object) -> bool:
     if not isinstance(s, str):
         sys.exit("Adapter is not a string.\n")
@@ -198,7 +183,7 @@ class Pipeline:
         if self.Data_folder is None:
             sys.exit("Data folder is not given.")
 
-        self.batch = OrderedDefaultDict(lambda:[])
+        self.batch = defaultdict(list)
         self.__current_step_id = ""
         self.__reset = 0
 
