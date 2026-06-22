@@ -243,7 +243,7 @@ def build_taxonomy_map(contig_info, email, batch_size=200, retry=3, cache_dir=No
     # (new accessions and previously unresolved ones).
     reused = {}
     to_lookup = []
-    for accession in accessions:
+    for accession in tqdm(accessions, desc="Checking previous map", unit="contig"):
         prev_entry = prev_map.get(accession)
         if prev_entry and prev_entry.get("ncbitaxon"):
             reused[accession] = (prev_entry["ncbitaxon"], prev_entry.get("ncbitaxonname"))
