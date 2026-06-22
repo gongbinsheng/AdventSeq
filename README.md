@@ -140,6 +140,54 @@ environment/reference settings, call `Pipeline.load_pipeline_config("/path/to/yo
 before creating `Pipeline` objects. See [AdVentSeq/AdVentSeq_Pipeline.md](AdVentSeq/AdVentSeq_Pipeline.md)
 for the full API.
 
+## Conda environments
+
+Each pipeline step runs its tool inside a dedicated conda environment named in the `envs4steps:`
+section of the config (e.g. step `BWA_MEM` &rarr; env `BWA`). The generated job scripts `source` a
+conda init script and `conda activate` the relevant env per step.
+
+Point the pipeline at your cluster's conda init script (this replaces the previously hard-coded
+path) before building job scripts:
+
+```python
+Pipeline.set_conda_init_script("/path/to/init_conda.sh")
+```
+
+When `Pipeline.load_pipeline_config(...)` loads a config it also, by default:
+
+1. **Verifies every conda env exists.** If any are missing, it writes an `install_conda_envs.sh`
+   next to your config (using the `conda-forge` and `bioconda` channels) and exits so you can review
+   and run it:
+
+   ```bash
+   bash install_conda_envs.sh   # review first, then re-run your pipeline
+   ```
+
+2. **Records the main tool version for each env** into a timestamped, commented block at the end of
+   the config yml (the block is fully commented, so it does not affect parsing):
+
+   ```yaml
+   # >>> AdVentSeq tool versions >>>
+   # generated: 20260622_110729[CDT]
+   # BWA: Version: 0.7.17-r1188
+   # samtools: samtools 1.17
+   # <<< AdVentSeq tool versions <<<
+   ```
+
+   If a versions block already exists you are prompted to **update** (default), **skip**, or
+   **quit**. Pass `on_existing_versions="update" | "skip" | "quit"` to skip the prompt.
+
+The install package name and version command for each env live in the bundled
+`AdVentSeq/conda_tools.yml` data file (env names often differ from package names, e.g. `BWA` &rarr;
+`bwa`, `gatk` &rarr; `gatk4`). Edit that file if bioconda/conda-forge package names or version flags
+change.
+
+If your environments are already set up and recorded, skip both checks:
+
+```python
+Pipeline.load_pipeline_config("/path/to/your_settings.yml", check_conda_setup=False)
+```
+
 The analysis tools are installed as console commands and can be run from any directory once the
 environment is active:
 
