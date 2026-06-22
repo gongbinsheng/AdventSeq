@@ -1,5 +1,7 @@
 import re
 import sys
+import shlex
+import datetime
 import subprocess
 import inspect
 from collections import defaultdict, OrderedDict
@@ -59,6 +61,11 @@ def parse_gtf(file_path):
             yield gtf_record
 
 DEFAULT_ENV_CONFIG = Path(__file__).with_name("pipeline_settings.yml.example")
+CONDA_TOOLS_CONFIG = Path(__file__).with_name("conda_tools.yml")
+
+# Sentinels delimiting the auto-generated tool-versions block in the config yml.
+TOOL_VERSIONS_BEGIN = "# >>> AdVentSeq tool versions >>>"
+TOOL_VERSIONS_END = "# <<< AdVentSeq tool versions <<<"
 
 
 def _normalize_path(path):
@@ -78,6 +85,11 @@ class Pipeline:
     config = {}
     envs4steps = {}
     configured_reference_paths = {}
+
+    conda_init_script = None
+    conda_tools_path = CONDA_TOOLS_CONFIG
+    conda_tools = {}
+    _conda_available = False
 
     @classmethod
     def _resolve_config_path(cls, config_path=None):
@@ -133,7 +145,7 @@ class Pipeline:
 
 
     @classmethod
-    def load_pipeline_config(cls, config_path=None):
+    def load_pipeline_config(cls, config_path=None, check_conda_setup=True, on_existing_versions=None):
         env_config_path = cls._resolve_config_path(config_path)
 
         if not env_config_path.exists():
@@ -160,6 +172,11 @@ class Pipeline:
         cls.config = config
         cls.envs4steps = cls._extract_envs4steps(config, env_config_path)
         cls.configured_reference_paths = cls._extract_reference_paths(config)
+
+        if check_conda_setup:
+            cls._load_conda_tools()
+            cls.check_and_install_conda_envs()      # may sys.exit if any env is missing
+            cls.record_tool_versions(on_existing=on_existing_versions)
         return config
 
 
@@ -167,7 +184,291 @@ class Pipeline:
     def ensure_pipeline_config_loaded(cls):
         if cls.config:
             return cls.config
-        return cls.load_pipeline_config()
+        # Lazy guard used during Pipeline construction: keep it cheap and never
+        # let it sys.exit mid-run. Conda verification + version recording is a
+        # deliberate setup step the user triggers via load_pipeline_config().
+        return cls.load_pipeline_config(check_conda_setup=False)
+
+
+    @classmethod
+    def set_conda_init_script(cls, path):
+        """Register a conda init script to source before running conda.
+
+        Replaces the previously hard-coded init line in the generated bash
+        script and makes conda available to the helper functions below.
+        """
+        normalized_path = _normalize_path(path)
+        if not Path(normalized_path).is_file():
+            sys.exit(
+                f"Invalid conda init script: file not found.\n  {normalized_path}\n"
+            )
+        cls.conda_init_script = normalized_path
+        cls._conda_available = False  # re-verify against the new init script
+        return cls.conda_init_script
+
+
+    @classmethod
+    def _load_conda_tools(cls):
+        """Load the env -> {package, version_cmd} mapping shipped with the package."""
+        tools_path = Path(cls.conda_tools_path)
+        if not tools_path.exists():
+            sys.exit(f"Cannot find conda tools file:\n  {tools_path}\n")
+        try:
+            with open(tools_path, "r", encoding="utf-8") as handle:
+                tools = yaml.safe_load(handle) or {}
+        except yaml.YAMLError as e:
+            sys.exit(f"Could not parse YAML file:\n  {tools_path}\n{e}\n")
+        except OSError as e:
+            sys.exit(f"Could not read conda tools file:\n  {tools_path}\n{e}\n")
+
+        if not isinstance(tools, dict):
+            sys.exit(f"Conda tools file must be a YAML mapping:\n  {tools_path}\n")
+        for env_name, info in tools.items():
+            if not isinstance(env_name, str) or not isinstance(info, dict):
+                sys.exit(
+                    f"Each conda tools entry must map an env name to a mapping:\n"
+                    f"  {tools_path}\n"
+                )
+        cls.conda_tools = tools
+        return tools
+
+
+    @classmethod
+    def _run_conda(cls, args, **kwargs):
+        """Run a conda command, sourcing the init script first when configured."""
+        if cls.conda_init_script:
+            conda_cmd = " ".join(["conda"] + [shlex.quote(str(a)) for a in args])
+            command = ["bash", "-lc", f"source {shlex.quote(cls.conda_init_script)}; {conda_cmd}"]
+        else:
+            command = ["conda"] + list(args)
+        return subprocess.run(command, **kwargs)
+
+
+    @classmethod
+    def _assert_conda_available(cls):
+        """Verify conda can run (init script sourced); exit with guidance if not."""
+        if cls._conda_available:
+            return
+        try:
+            result = cls._run_conda(
+                ["--version"],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+        except Exception as e:
+            result = None
+            error = str(e)
+        else:
+            error = result.stderr.decode("utf-8", "replace").strip()
+
+        if result is None or result.returncode != 0:
+            hint = (
+                f"  source script: {cls.conda_init_script}\n"
+                if cls.conda_init_script
+                else "  No conda init script set. Use Pipeline.set_conda_init_script(path)\n"
+                "  to provide one, or make sure 'conda' is on PATH.\n"
+            )
+            sys.exit(
+                "Error: conda is not available (conda was not initiated successfully).\n"
+                f"{hint}"
+                f"  details: {error}\n"
+            )
+        cls._conda_available = True
+
+
+    @classmethod
+    def check_and_install_conda_envs(cls):
+        """Verify every conda env named in envs4steps exists.
+
+        If any are missing, write an install script (conda-forge + bioconda
+        channels) next to the config, print run instructions, and exit so the
+        user can review and run it.
+        """
+        cls._assert_conda_available()
+        required = sorted(set(cls.envs4steps.values()))
+        try:
+            result = cls._run_conda(
+                ["env", "list"],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+        except Exception as e:
+            sys.exit(f"Could not list conda environments: {e}\n")
+        if result.returncode != 0:
+            sys.exit(
+                "Could not list conda environments:\n"
+                f"{result.stderr.decode('utf-8', 'replace')}\n"
+            )
+
+        available = cls._parse_conda_env_names(result.stdout.decode("utf-8", "replace"))
+        missing = [env for env in required if env not in available]
+        if not missing:
+            return
+
+        script_path = Path(cls.config_path).parent / "install_conda_envs.sh"
+        timestamp = cls._timestamp()
+        lines = [
+            "#!/usr/bin/env bash\n",
+            f"# Auto-generated by AdVentSeq load_pipeline_config on {timestamp}\n",
+            "# Review before running. Channels: conda-forge, bioconda.\n",
+            "set -euo pipefail\n\n",
+        ]
+        for env in missing:
+            info = cls.conda_tools.get(env, {})
+            has_info = env in cls.conda_tools
+            package = info.get("package") if has_info else None
+            if package:
+                lines.append(
+                    f"conda create -y -n {env} -c conda-forge -c bioconda {package}\n"
+                )
+            elif has_info:
+                # package explicitly null -> not installable from a channel.
+                lines.append(
+                    f"# {env}: this env is not installable from conda-forge/bioconda "
+                    f"(it is AdVentSeq's own env); set it up manually.\n"
+                )
+            else:
+                lines.append(
+                    f"conda create -y -n {env} -c conda-forge -c bioconda {env}  "
+                    f"# verify package name (no entry in conda_tools.yml)\n"
+                )
+
+        try:
+            with open(script_path, "w", encoding="utf-8") as handle:
+                handle.writelines(lines)
+            script_path.chmod(0o755)
+        except OSError as e:
+            sys.exit(f"Could not write install script:\n  {script_path}\n{e}\n")
+
+        sys.exit(
+            "Missing conda environments: " + ", ".join(missing) + "\n"
+            f"An install script was written to:\n  {script_path}\n"
+            "Review it, then create the environments with:\n"
+            f"  bash {script_path}\n"
+            "Re-run once the environments exist.\n"
+        )
+
+
+    @classmethod
+    def record_tool_versions(cls, on_existing=None):
+        """Record each env's main-tool version into a commented block in the config yml.
+
+        on_existing controls what happens when a versions block already exists:
+        "update" (default on empty prompt), "skip", or "quit". When None, the
+        user is prompted interactively.
+        """
+        timestamp = cls._timestamp()
+        block_lines = [
+            TOOL_VERSIONS_BEGIN + "\n",
+            f"# generated: {timestamp}\n",
+        ]
+        for env in sorted(set(cls.envs4steps.values())):
+            block_lines.append(f"# {env}: {cls._tool_version(env)}\n")
+        block_lines.append(TOOL_VERSIONS_END + "\n")
+
+        config_path = Path(cls.config_path)
+        try:
+            with open(config_path, "r", encoding="utf-8") as handle:
+                file_lines = handle.readlines()
+        except OSError as e:
+            sys.exit(f"Could not read config file:\n  {config_path}\n{e}\n")
+
+        begin_idx = end_idx = None
+        for i, line in enumerate(file_lines):
+            if line.strip() == TOOL_VERSIONS_BEGIN:
+                begin_idx = i
+            elif line.strip() == TOOL_VERSIONS_END and begin_idx is not None:
+                end_idx = i
+                break
+
+        if begin_idx is not None and end_idx is not None:
+            action = cls._resolve_on_existing(on_existing)
+            if action == "skip":
+                return
+            if action == "quit":
+                sys.exit("Quit: existing tool-versions block left unchanged.\n")
+            # update: replace the existing block in place.
+            new_lines = file_lines[:begin_idx] + block_lines + file_lines[end_idx + 1:]
+        else:
+            new_lines = file_lines[:]
+            if new_lines and not new_lines[-1].endswith("\n"):
+                new_lines[-1] += "\n"
+            if new_lines:
+                new_lines.append("\n")
+            new_lines.extend(block_lines)
+
+        try:
+            with open(config_path, "w", encoding="utf-8") as handle:
+                handle.writelines(new_lines)
+        except OSError as e:
+            sys.exit(f"Could not write config file:\n  {config_path}\n{e}\n")
+
+
+    @classmethod
+    def _resolve_on_existing(cls, on_existing):
+        if on_existing is not None:
+            action = str(on_existing).strip().lower()
+            if action not in ("update", "skip", "quit"):
+                sys.exit(
+                    f"Invalid on_existing value: {on_existing!r} "
+                    "(expected 'update', 'skip', or 'quit').\n"
+                )
+            return action
+        try:
+            answer = input(
+                "A tool-versions block already exists. [update]/skip/quit: "
+            ).strip().lower()
+        except EOFError:
+            answer = ""
+        if answer == "":
+            return "update"
+        if answer in ("update", "skip", "quit"):
+            return answer
+        return "update"
+
+
+    @classmethod
+    def _tool_version(cls, env):
+        if env not in cls.conda_tools:
+            return "<no tool info configured>"
+        version_cmd = cls.conda_tools.get(env, {}).get("version_cmd")
+        if not version_cmd:
+            return "<no tool info configured>"
+        try:
+            result = cls._run_conda(
+                ["run", "-n", env, "bash", "-lc", version_cmd],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                timeout=60,
+            )
+        except Exception:
+            return "<unknown>"
+        if result.returncode != 0:
+            return "<unknown>"
+        for line in result.stdout.decode("utf-8", "replace").splitlines():
+            stripped = line.strip()
+            if stripped:
+                return stripped
+        return "<unknown>"
+
+
+    @staticmethod
+    def _parse_conda_env_names(env_list_output):
+        names = set()
+        for line in env_list_output.splitlines():
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            # Columns: name [*] path. The first token is the env name.
+            name = line.split()[0]
+            if name != "*":
+                names.add(name)
+        return names
+
+
+    @staticmethod
+    def _timestamp():
+        return datetime.datetime.now().astimezone().strftime("%Y%m%d_%H%M%S[%Z]")
 
     def add_nodes_to_be_skipped(self,more_nodes_to_be_skipped):
         self.__HPC_nodes_to_skipped = self.__HPC_nodes_to_skipped.union(more_nodes_to_be_skipped)
@@ -667,7 +968,12 @@ class Pipeline:
         step_id = "ENV"
         batch.append('### %s ###\n' % "Set ENV variables")
         batch.append('# Conda initiation\n')
-        batch.append('source /account001/bgong/init_conda.sh\n\n\n')  # Conda initiation
+        if self.conda_init_script:
+            self._assert_conda_available()  # fail fast if conda cannot be initiated
+            batch.append('source %s\n\n\n' % self.conda_init_script)  # Conda initiation
+        else:
+            batch.append('# No conda init script configured; set one with '
+                         'Pipeline.set_conda_init_script(path)\n\n\n')
         batch.append('\n')
         batch.append('SID="%s"\n' % self.sample_id)
         self.set_current_step_id(self.sample_id) # init the current step id

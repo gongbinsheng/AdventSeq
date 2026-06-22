@@ -1,0 +1,26 @@
+# Per-conda-env install package + main-tool version command for AdVentSeq.
+# Keys are the conda env names used in pipeline_settings.yml (envs4steps values).
+# For each env:
+#   package      conda package name to install (channels: conda-forge, bioconda).
+#                Use null when the env is not installable from a channel
+#                (e.g. AdVentSeq, which is this package's own env).
+#   version_cmd  shell command that prints the main tool's version. Run inside
+#                the env via `conda run -n <env> bash -lc "<version_cmd>"`.
+# Edit this file when bioconda / conda-forge package names or version flags change.
+MultiQC:    {package: multiqc,    version_cmd: "multiqc --version"}
+fastp:      {package: fastp,      version_cmd: "fastp --version"}
+BWA:        {package: bwa,        version_cmd: "bwa 2>&1 | grep -i '^Version'"}   # no flag, stderr
+Bowtie2:    {package: bowtie2,    version_cmd: "bowtie2 --version | head -n1"}
+Kraken2:    {package: kraken2,    version_cmd: "kraken2 --version | head -n1"}
+minimap2:   {package: minimap2,   version_cmd: "minimap2 --version"}
+HISAT2:     {package: hisat2,     version_cmd: "hisat2 --version | head -n1"}
+STAR:       {package: star,       version_cmd: "STAR --version"}
+samtools:   {package: samtools,   version_cmd: "samtools --version | head -n1"}
+bedtools:   {package: bedtools,   version_cmd: "bedtools --version"}
+SomaticSeq: {package: somaticseq, version_cmd: "somaticseq_parallel.py --version"}
+HTSeq:      {package: htseq,      version_cmd: "htseq-count --version"}
+Subread:    {package: subread,    version_cmd: "featureCounts -v 2>&1 | grep -i version"}  # stderr
+deepTools:  {package: deeptools,  version_cmd: "bamCoverage --version"}
+SPAdes:     {package: spades,     version_cmd: "spades.py --version"}
+AdVentSeq:  {package: null,       version_cmd: "pip show AdVentSeq 2>/dev/null | grep -i '^Version'"}   # this package's own env
+gatk:       {package: gatk4,      version_cmd: "gatk --version 2>&1 | head -n1"}
