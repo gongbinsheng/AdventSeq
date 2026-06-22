@@ -54,4 +54,4 @@ test*
 Resources/
 
 # created sripts
-create_pipeline_script.py
+install_conda_envs.sh

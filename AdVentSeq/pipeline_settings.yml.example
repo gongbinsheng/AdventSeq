@@ -1,7 +1,4 @@
 # Copy this file to pipeline_settings.yml and edit it for your environment.
-#
-# The step -> conda-env mapping lives in AdVentSeq/conda_tools.yml,
-# as a `steps:` list on each env entry.
 
 # Optional reference paths loaded during Pipeline object initialization.
 # Define one or more reference bundles keyed by ref_genome.
