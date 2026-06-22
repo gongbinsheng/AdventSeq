@@ -4,6 +4,91 @@ AdVentSeq is an HPC pipeline builder and viral-quantification toolkit for sequen
 `Pipeline` class is provided as an importable Python package, while the analysis tools
 (`ViraQuant.py`, `TaxonomyClassifier.py`, and the helpers) are standalone scripts.
 
+## Package data flow
+
+The diagram below shows each script in the package, its data files (inputs and outputs), and which
+files flow between scripts. Rectangles are scripts/modules, cylinders are data files, and the
+rounded node is the external NCBI service. Dashed arrows denote a code dependency (shared module) or
+orchestration (generated job scripts running a tool) rather than a data file.
+
+```mermaid
+flowchart TD
+    %% ---- External / shared ----
+    NCBI(["NCBI E-utilities<br/>(nuccore + taxonomy)"])
+    UTILS["contig_info_utils.py<br/>(shared loaders)"]
+
+    %% ===== Reference data preparation =====
+    subgraph REF["Reference preparation (RVDB &rarr; taxonomy map)"]
+        RVDB[("RVDB SQLite<br/>U-RVDB&lt;release&gt;.sqlite.db[.gz]")]
+        CONVERT["convert_rvdb_to_json.py"]
+        CONTIG[("contig_info.json.gz")]
+        BUILDMAP["build_ncbi_taxonomy_map.py"]
+        PREVMAP[("previous<br/>ncbi_taxonomy_map.json.gz")]
+        TAXMAP[("ncbi_taxonomy_map.json.gz")]
+
+        RVDB --> CONVERT --> CONTIG
+        CONTIG --> BUILDMAP --> TAXMAP
+        PREVMAP -. reuse .-> BUILDMAP
+    end
+    NCBI --> BUILDMAP
+
+    %% ===== Pipeline / alignment =====
+    subgraph PIPE["Per-sample pipeline"]
+        FASTQ[("FASTQ reads")]
+        SETTINGS[("pipeline_settings.yml")]
+        PIPELINE["AdVentSeq_Pipeline.py<br/>(Pipeline class)"]
+        JOBS[("generated .sh job scripts")]
+        SORTBAM[("sorted BAM (+ .bai)")]
+        NAMEBAM[("name-sorted BAM")]
+
+        FASTQ --> PIPELINE
+        SETTINGS --> PIPELINE
+        PIPELINE --> JOBS
+        JOBS --> SORTBAM
+        JOBS --> NAMEBAM
+    end
+
+    %% ===== Analysis tools =====
+    subgraph ANALYSIS["Analysis & reporting"]
+        TAXCLASS["TaxonomyClassifier.py"]
+        SPLIT[("split BAMs + unmapped FASTQ<br/>+ &lt;sample&gt;.read_count.txt")]
+        VIRAQUANT["ViraQuant.py"]
+        VQOUT[("ViraQuant TSV + companion .yml")]
+        SCAN[("ViraQuant_scan TSV[.gz]")]
+        CONVSCAN["convert_ViraQuant_scan_to_ncbitaxon.py"]
+        NCBITAX[("ncbitaxon-grouped TSV[.gz]")]
+        KRAKEN[("Kraken2 inspect report")]
+        ADDRVDB["add_rvdb_columns.py"]
+        RVDBTSV[("inspect report + in_rvdb / rvdb_accessions")]
+
+        NAMEBAM --> TAXCLASS --> SPLIT
+        SORTBAM --> VIRAQUANT
+        VIRAQUANT --> VQOUT
+        VIRAQUANT --> SCAN --> CONVSCAN --> NCBITAX
+        KRAKEN --> ADDRVDB --> RVDBTSV
+    end
+
+    %% ---- cross-stage data files ----
+    CONTIG --> TAXCLASS
+    TAXMAP --> TAXCLASS
+    TAXMAP --> CONVSCAN
+    TAXMAP --> ADDRVDB
+
+    %% ---- orchestration / dependencies ----
+    JOBS -. runs .-> VIRAQUANT
+    JOBS -. runs .-> TAXCLASS
+    UTILS -. imported by .-> CONVERT
+    UTILS -. imported by .-> BUILDMAP
+    UTILS -. imported by .-> TAXCLASS
+
+    classDef script fill:#dbeafe,stroke:#1e40af,color:#1e3a8a;
+    classDef data fill:#dcfce7,stroke:#166534,color:#14532d;
+    classDef ext fill:#fef9c3,stroke:#854d0e,color:#713f12;
+    class CONVERT,BUILDMAP,PIPELINE,TAXCLASS,VIRAQUANT,CONVSCAN,ADDRVDB,UTILS script;
+    class RVDB,CONTIG,PREVMAP,TAXMAP,FASTQ,SETTINGS,JOBS,SORTBAM,NAMEBAM,SPLIT,VQOUT,SCAN,NCBITAX,KRAKEN,RVDBTSV data;
+    class NCBI ext;
+```
+
 ## Installation
 
 AdVentSeq targets Python 3.12. Create a dedicated conda environment and install the package in

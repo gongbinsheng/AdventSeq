@@ -15,6 +15,32 @@ At a high level, the module handles four jobs:
 
 The module does not provide a top-level CLI or a built-in `write_script()` helper. The intended usage pattern is to instantiate `Pipeline`, call the desired methods, and then write out the contents of `pipeline.batch` yourself.
 
+```mermaid
+flowchart TD
+    CFG["Set class settings &amp; load<br/>pipeline_settings.yml<br/>(WD, Data_folder, refs, envs)"] --> NEW["Pipeline(sample_id, file_list, ...)"]
+    NEW --> INIT["Validate metadata · resolve reference bundle ·<br/>infer FASTQ vs BAM input · read _my_progress"]
+    INIT --> CALL["Call step methods in recommended order"]
+
+    subgraph METHODS["Step methods (each accumulates a shell block)"]
+        direction TB
+        M1["scheduler header<br/>set_qsub_parameters / set_slurm_parameters"]
+        M2["set_env_variables (ENV bootstrap)"]
+        M3["merge_lanes · fastp (FASTQ only)"]
+        M4["aligner: BWA_MEM / STAR"]
+        M5["SAM2BAM · sort_BAM (+ index)"]
+        M6["downstream: BAM_stat · featureCounts ·<br/>BAM2BigWig · GATK4_Mutect2 · ViraQuant ..."]
+        M1 --> M2 --> M3 --> M4 --> M5 --> M6
+    end
+
+    CALL --> METHODS
+    METHODS --> CHK{"each step:<br/>already in _my_progress?"}
+    CHK -->|Yes| SK["skip (emit nothing)"]
+    CHK -->|No| AP["append commands to<br/>Pipeline.batch (ordered sections)"]
+    AP --> WR["You serialize Pipeline.batch<br/>-&gt; .sh job script"]
+    SK --> WR
+    WR --> SUB["Submit / run .sh on the cluster"]
+```
+
 ## Requirements
 
 - The `AdVentSeq` conda environment with the package installed (see the main [README.md](../README.md) for setup).

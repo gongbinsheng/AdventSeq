@@ -9,13 +9,17 @@ Builds a gzipped JSON mapping from accession to NCBI taxonomy ID, NCBI taxonomy 
 ```mermaid
 flowchart TD
     A["Read --contig_info<br/>JSON / JSON.gz / SQLite / SQLite.gz"] --> B["Build accession -> contig metadata dict"]
-    B --> C["Collect accession IDs"]
-    C --> D["Batch query NCBI nuccore summary<br/>using --email"]
+    P["Read --prev_map (optional)<br/>previous JSON / JSON.gz"] --> C
+    B --> C{"For each accession:<br/>in prev_map with non-null ncbitaxon?"}
+    C -->|Yes| R["Reuse ncbitaxon + ncbitaxonname<br/>from previous map"]
+    C -->|No| L["Add to lookup list<br/>(new or previously unresolved)"]
+    L --> D["Batch query NCBI nuccore summary<br/>using --email"]
     D --> E["Extract accession -> TaxId"]
-    E --> F["Collect unique TaxIds"]
+    E --> F["Collect TaxIds without a known name"]
+    P -. known names .-> F
     F --> G["Query NCBI taxonomy records"]
     G --> H["Resolve TaxId -> ScientificName"]
-    B --> I["Combine taxonomy results with original organism"]
+    R --> I["Combine results with original organism<br/>(organism always from --contig_info)"]
     E --> I
     H --> I
     I --> J["Write --out as JSON.gz"]

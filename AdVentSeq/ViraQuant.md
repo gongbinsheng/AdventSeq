@@ -11,6 +11,28 @@ The script reports both:
 
 Output is a **single TSV** with a `level` column (`contig` or `virus`), plus a companion YAML file recording the arguments actually used.
 
+```mermaid
+flowchart TD
+    BAM["Read --bam<br/>coordinate-sorted + indexed"] --> MODE{"--scan-by given?"}
+
+    MODE -->|"No (targeted mode)"| SEL{"--viruses given?"}
+    SEL -->|Yes| LIST["Selected contigs from<br/>virus_list.txt / contig IDs"]
+    SEL -->|No| TOPN["Top-N contigs by<br/>mapped_reads / length"]
+
+    MODE -->|"Yes (scan mode)"| SCAN["All contigs in BAM header<br/>auto-adjust n-min / percents / kpercents"]
+
+    LIST --> DEPTH["Per-base depth via pysam pileup"]
+    TOPN --> DEPTH
+    SCAN --> DEPTH
+
+    DEPTH --> METRICS["Method A: depth_at_Ppct quantiles<br/>Method B: frac / mean / median &ge; n, pass_k flags"]
+
+    METRICS --> GROUP["Targeted: pool 2-col virus groups into virus rows<br/>Scan: keep contigs passing --scan-by"]
+    GROUP --> BEST["Add best-contig fields"]
+    BEST --> TSV["Write --out TSV<br/>level = contig / virus"]
+    BEST --> YML["Write companion .yml<br/>effective arguments used"]
+```
+
 ## Requirements
 
 - The `AdVentSeq` conda environment (Python 3.12+ with `pysam`); see the main [README.md](../README.md) for setup. Activate it first: `conda activate AdVentSeq`.
