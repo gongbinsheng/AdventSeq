@@ -52,3 +52,6 @@ test*
 
 # Large
 Resources/
+
+# created sripts
+create_pipeline_script.py

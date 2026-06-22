@@ -35,7 +35,8 @@ flowchart TD
     %% ===== Pipeline / alignment =====
     subgraph PIPE["Per-sample pipeline"]
         FASTQ[("FASTQ reads")]
-        SETTINGS[("pipeline_settings.yml")]
+        SETTINGS[("pipeline_settings.yml<br/>(reference paths)")]
+        CONDATOOLS[("conda_tools.yml<br/>(step &rarr; env, tools)")]
         PIPELINE["AdVentSeq_Pipeline.py<br/>(Pipeline class)"]
         JOBS[("generated .sh job scripts")]
         SORTBAM[("sorted BAM (+ .bai)")]
@@ -43,6 +44,7 @@ flowchart TD
 
         FASTQ --> PIPELINE
         SETTINGS --> PIPELINE
+        CONDATOOLS --> PIPELINE
         PIPELINE --> JOBS
         JOBS --> SORTBAM
         JOBS --> NAMEBAM
@@ -142,15 +144,24 @@ for the full API.
 
 ## Conda environments
 
-Each pipeline step runs its tool inside a dedicated conda environment named in the `envs4steps:`
-section of the config (e.g. step `BWA_MEM` &rarr; env `BWA`). The generated job scripts `source` a
-conda init script and `conda activate` the relevant env per step.
+Each pipeline step runs its tool inside a dedicated conda environment. The step &rarr; env mapping
+is defined in `AdVentSeq/conda_tools.yml`: each env entry lists the steps that run in it via its
+`steps:` field (e.g. env `BWA` has `steps: [BWA_MEM]`), and `Pipeline.envs4steps` is derived by
+inverting those lists. The generated job scripts `source` a conda init script and `conda activate`
+the relevant env per step.
 
-Point the pipeline at your cluster's conda init script (this replaces the previously hard-coded
-path) before building job scripts:
+Point the pipeline at your cluster's conda init script before building job scripts:
 
 ```python
 Pipeline.set_conda_init_script("/path/to/init_conda.sh")
+```
+
+To use your own env names / tool definitions instead of the bundled `conda_tools.yml`, point the
+pipeline at a custom copy (it fully replaces the bundled file and immediately refreshes the
+step &rarr; env mapping):
+
+```python
+Pipeline.set_conda_tools_config("/path/to/your_conda_tools.yml")
 ```
 
 When `Pipeline.load_pipeline_config(...)` loads a config it also, by default:
@@ -177,10 +188,10 @@ When `Pipeline.load_pipeline_config(...)` loads a config it also, by default:
    If a versions block already exists you are prompted to **update** (default), **skip**, or
    **quit**. Pass `on_existing_versions="update" | "skip" | "quit"` to skip the prompt.
 
-The install package name and version command for each env live in the bundled
+The step list, install package name, and version command for each env live in the bundled
 `AdVentSeq/conda_tools.yml` data file (env names often differ from package names, e.g. `BWA` &rarr;
 `bwa`, `gatk` &rarr; `gatk4`). Edit that file if bioconda/conda-forge package names or version flags
-change.
+change, or to reassign which env a step runs in.
 
 If your environments are already set up and recorded, skip both checks:
 
