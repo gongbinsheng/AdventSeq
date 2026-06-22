@@ -52,6 +52,8 @@ python build_ncbi_taxonomy_map.py \
   Optional gzipped JSON output path. Defaults to `ncbi_taxonomy_map.json.gz`.
 - `--retry`
   Optional retry count for each failed NCBI request. Defaults to `3`.
+- `--prev_map`
+  Optional previous taxonomy map (`.json` or `.json.gz`) from an earlier run. Accessions already resolved there are reused instead of re-queried, so only new or previously unresolved accessions hit NCBI. See [Reusing a previous map](#reusing-a-previous-map).
 
 ## Inputs
 
@@ -122,6 +124,26 @@ Cache and resume behavior:
 - Cached batches are reused on rerun, so if the script stops partway through a large job it can resume from the completed batches instead of re-querying everything.
 - Only successful batch results are cached.
 - The cache directory is deleted automatically after a successful completed run. If the run fails, the cache directory is left in place so the next run can resume from completed batches.
+
+### Reusing a previous map
+
+When `--prev_map` points to an earlier output (for example, the v29.0 map while building v31.0), the script reuses already-retrieved data to avoid re-querying NCBI for the whole database:
+
+- For an accession present in the previous map with a non-null `ncbitaxon`, both `ncbitaxon` and `ncbitaxonname` are copied directly from the previous map (the scientific name is trusted, not refreshed).
+- Accessions that are new, or whose previous `ncbitaxon` is `null`/missing, are re-queried against NCBI, since newer NCBI data may now resolve them.
+- The `organism` field always comes from the current `--contig_info`, never from the previous map.
+- Accessions that exist in the previous map but not in the current `--contig_info` are dropped — the output is always keyed by the current `--contig_info`.
+- Taxonomy-name lookups are also skipped for any TaxId already named in the previous map, so even new accessions that resolve to a known TaxId avoid an extra query.
+
+Example, building v31.0 while reusing v29.0:
+
+```bash
+python build_ncbi_taxonomy_map.py \
+  --contig_info v31.0/contig_info.json.gz \
+  --email Binsheng.Gong@fda.hhs.gov \
+  --prev_map v29.0/ncbi_taxonomy_map.json.gz \
+  --out v31.0/ncbi_taxonomy_map.json.gz
+```
 
 Missing data behavior:
 

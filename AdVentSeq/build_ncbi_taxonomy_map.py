@@ -13,7 +13,7 @@ from urllib.parse import urlencode
 from urllib.request import urlopen
 import xml.etree.ElementTree as ET
 
-from AdVentSeq.contig_info_utils import load_contig_info
+from AdVentSeq.contig_info_utils import load_contig_info, load_json_mapping
 
 try:
     from tqdm import tqdm
@@ -55,6 +55,16 @@ def parse_args(argv=None) -> argparse.Namespace:
         default=3,
         type=int,
         help="Number of retries for each failed NCBI request. Defaults to 3.",
+    )
+    parser.add_argument(
+        "--prev_map",
+        default=None,
+        type=Path,
+        help=(
+            "Optional previous taxonomy map (.json or .json.gz). Accessions already "
+            "resolved there are reused, so only new/unresolved accessions are queried "
+            "against NCBI."
+        ),
     )
     return parser.parse_args(argv)
 
@@ -225,18 +235,23 @@ def fetch_taxonomy_names(taxids, email, batch_size=200, retry=3, cache_dir=None,
     return taxid_to_name
 
 
-def build_taxonomy_map(contig_info, email, batch_size=200, retry=3, cache_dir=None, opener=urlopen):
+def build_taxonomy_map(contig_info, email, batch_size=200, retry=3, cache_dir=None, opener=urlopen, prev_map=None):
+    prev_map = prev_map or {}
     accessions = sorted(contig_info.keys())
+
+    # Reuse non-null entries from the previous map; re-query everything else
+    # (new accessions and previously unresolved ones).
+    reused = {}
+    to_lookup = []
+    for accession in accessions:
+        prev_entry = prev_map.get(accession)
+        if prev_entry and prev_entry.get("ncbitaxon"):
+            reused[accession] = (prev_entry["ncbitaxon"], prev_entry.get("ncbitaxonname"))
+        else:
+            to_lookup.append(accession)
+
     accession_to_taxid = fetch_nuccore_taxids(
-        accessions,
-        email=email,
-        batch_size=batch_size,
-        retry=retry,
-        cache_dir=cache_dir,
-        opener=opener,
-    )
-    taxid_to_name = fetch_taxonomy_names(
-        sorted({taxid for taxid in accession_to_taxid.values() if taxid}),
+        to_lookup,
         email=email,
         batch_size=batch_size,
         retry=retry,
@@ -244,13 +259,44 @@ def build_taxonomy_map(contig_info, email, batch_size=200, retry=3, cache_dir=No
         opener=opener,
     )
 
+    # Names already known from the previous map; only query taxonomy for taxids
+    # we have not seen a name for before.
+    known_names = {
+        str(entry["ncbitaxon"]): entry["ncbitaxonname"]
+        for entry in prev_map.values()
+        if entry.get("ncbitaxon") and entry.get("ncbitaxonname")
+    }
+    taxids_needing_names = sorted(
+        {str(taxid) for taxid in accession_to_taxid.values() if taxid and str(taxid) not in known_names}
+    )
+    name_lookup = {
+        **known_names,
+        **fetch_taxonomy_names(
+            taxids_needing_names,
+            email=email,
+            batch_size=batch_size,
+            retry=retry,
+            cache_dir=cache_dir,
+            opener=opener,
+        ),
+    }
+
     taxonomy_map = {}
     for accession in accessions:
         organism = contig_info[accession].get("organism")
+        if accession in reused:
+            taxid, name = reused[accession]
+            taxonomy_map[accession] = {
+                "ncbitaxon": taxid,
+                "ncbitaxonname": name,
+                "organism": organism,
+            }
+            continue
+
         taxid = accession_to_taxid.get(accession)
         taxonomy_map[accession] = {
             "ncbitaxon": taxid if taxid else None,
-            "ncbitaxonname": taxid_to_name.get(taxid) if taxid else None,
+            "ncbitaxonname": name_lookup.get(str(taxid)) if taxid else None,
             "organism": organism,
         }
 
@@ -273,12 +319,14 @@ def main(argv=None) -> None:
         raise SystemExit("--retry must be 0 or greater")
 
     contig_info = load_contig_info(args.contig_info)
+    prev_map = load_json_mapping(args.prev_map) if args.prev_map else None
     cache_dir = get_cache_dir(args.out)
     taxonomy_map = build_taxonomy_map(
         contig_info,
         email=args.email,
         retry=args.retry,
         cache_dir=cache_dir,
+        prev_map=prev_map,
     )
     write_taxonomy_map(taxonomy_map, args.out)
     cleanup_cache_dir(cache_dir)
