@@ -97,22 +97,29 @@ class Pipeline:
 
 
     @classmethod
-    def _extract_envs4steps(cls, config, config_path):
-        step_envs = config.get("envs4steps", config)
-        if not isinstance(step_envs, dict):
-            sys.exit(
-                f"envs4steps must be a YAML mapping.\n"
-                f"    {config_path}\n"
-            )
-
+    def _invert_steps_to_envs4steps(cls, tools, tools_path):
+        """Build the step -> env map by inverting each env's `steps` list."""
         envs4steps = {}
-        for step_name, env_name in step_envs.items():
-            if not isinstance(step_name, str) or not isinstance(env_name, str):
+        for env_name, info in tools.items():
+            steps = info.get("steps", [])
+            if not isinstance(steps, list):
                 sys.exit(
-                    f"Each envs4steps entry must map a step name to a conda env string:\n"
-                    f"    {config_path}\n"
+                    f"'steps' for env {env_name!r} must be a YAML list of step names:\n"
+                    f"  {tools_path}\n"
                 )
-            envs4steps[step_name] = env_name
+            for step_name in steps:
+                if not isinstance(step_name, str):
+                    sys.exit(
+                        f"Each step name under env {env_name!r} must be a string:\n"
+                        f"  {tools_path}\n"
+                    )
+                if step_name in envs4steps:
+                    sys.exit(
+                        f"Step {step_name!r} is assigned to two envs "
+                        f"({envs4steps[step_name]!r} and {env_name!r}):\n"
+                        f"  {tools_path}\n"
+                    )
+                envs4steps[step_name] = env_name
         return envs4steps
 
 
@@ -170,11 +177,13 @@ class Pipeline:
 
         cls.config_path = env_config_path
         cls.config = config
-        cls.envs4steps = cls._extract_envs4steps(config, env_config_path)
         cls.configured_reference_paths = cls._extract_reference_paths(config)
+        # conda_tools.yml is the single source of truth for both the env -> tool
+        # info and the step -> env map (envs4steps). Load it always: envs4steps is
+        # needed at Pipeline-construction time even when conda checks are skipped.
+        cls._load_conda_tools()
 
         if check_conda_setup:
-            cls._load_conda_tools()
             cls.check_and_install_conda_envs()      # may sys.exit if any env is missing
             cls.record_tool_versions(on_existing=on_existing_versions)
         return config
@@ -194,8 +203,8 @@ class Pipeline:
     def set_conda_init_script(cls, path):
         """Register a conda init script to source before running conda.
 
-        Replaces the previously hard-coded init line in the generated bash
-        script and makes conda available to the helper functions below.
+        The init line in the generated bash script sources this path, which
+        also makes conda available to the helper functions below.
         """
         normalized_path = _normalize_path(path)
         if not Path(normalized_path).is_file():
@@ -208,8 +217,29 @@ class Pipeline:
 
 
     @classmethod
+    def set_conda_tools_config(cls, path):
+        """Override the bundled conda_tools.yml with a custom one.
+
+        Sets the conda-tools config path and immediately reloads it, refreshing
+        both cls.conda_tools and cls.envs4steps (step -> env). Use this to supply
+        your own env names / tool definitions without editing the packaged file.
+        The custom file fully replaces the bundled one (it is not merged).
+        """
+        normalized_path = _normalize_path(path)
+        if not Path(normalized_path).is_file():
+            sys.exit(f"Invalid conda tools file: file not found.\n  {normalized_path}\n")
+        cls.conda_tools_path = normalized_path
+        cls._load_conda_tools()   # refresh cls.conda_tools + cls.envs4steps now
+        return cls.conda_tools_path
+
+
+    @classmethod
     def _load_conda_tools(cls):
-        """Load the env -> {package, version_cmd} mapping shipped with the package."""
+        """Load the env definitions shipped with the package.
+
+        Sets both ``cls.conda_tools`` (env -> {steps, package, version_cmd}) and
+        ``cls.envs4steps`` (step -> env, derived by inverting each env's ``steps``).
+        """
         tools_path = Path(cls.conda_tools_path)
         if not tools_path.exists():
             sys.exit(f"Cannot find conda tools file:\n  {tools_path}\n")
@@ -230,6 +260,7 @@ class Pipeline:
                     f"  {tools_path}\n"
                 )
         cls.conda_tools = tools
+        cls.envs4steps = cls._invert_steps_to_envs4steps(tools, tools_path)
         return tools
 
 

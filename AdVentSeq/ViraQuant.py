@@ -42,6 +42,8 @@ import time
 from collections import Counter, defaultdict
 from pathlib import Path
 
+from tqdm import tqdm
+
 DEFAULT_PCTS = [0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
 SCAN_EXPR_RE = re.compile(
     r"^\s*([A-Za-z_][A-Za-z0-9_]*)\s*(>=|<=|==|>|<)\s*([-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?)\s*$"
@@ -322,27 +324,6 @@ def format_elapsed(seconds: float) -> str:
     hours, remainder = divmod(total_seconds, 3600)
     minutes, secs = divmod(remainder, 60)
     return f"{hours:02d}:{minutes:02d}:{secs:02d}"
-
-
-def print_progress_update(
-    processed: int,
-    total: int,
-    current_contig: str,
-    started_at: float,
-    scan_mode: bool,
-    passed_scan: int = 0,
-):
-    elapsed = time.monotonic() - started_at
-    pct = (processed / total * 100.0) if total > 0 else 100.0
-    rate = (processed / elapsed) if elapsed > 0 else 0.0
-    message = (
-        f"PROGRESS: processed {processed}/{total} contigs "
-        f"({pct:.1f}%), current={current_contig}, elapsed={format_elapsed(elapsed)}, "
-        f"rate={rate:.1f} contigs/s"
-    )
-    if scan_mode:
-        message += f", passed={passed_scan}"
-    print(message, file=sys.stderr)
 
 
 def option_was_provided(argv, option: str):
@@ -816,11 +797,17 @@ def main():
     ap.add_argument(
         "--progress-every",
         type=int,
-        default=100,
+        default=0,
         help=(
-            "Write a plain stderr progress update every N contigs processed. "
-            "Set to 0 to disable periodic updates. Default 100."
+            "Minimum number of contigs between progress-bar refreshes (tqdm miniters). "
+            "Progress is only shown on an interactive terminal; set to 0 to let tqdm refresh "
+            "by time. Default 0."
         ),
+    )
+    ap.add_argument(
+        "--silent",
+        action="store_true",
+        help="Never show the progress bar, even on an interactive terminal.",
     )
     ap.add_argument("--max-depth", type=int, default=1000000, help="Pileup max depth. Default 1,000,000.")
     ap.add_argument("--out", required=True, help="Output TSV path. A companion .yml file is always written.")
@@ -882,10 +869,16 @@ def main():
                 print(f"  {v}", file=sys.stderr)
             virus_ids = [v for v in virus_ids if v in lengths]
 
+    # Show a tqdm progress bar only on an interactive terminal (and unless --silent).
+    # On a non-TTY (e.g. an HPC job log) we stay quiet and print only the final report and
+    # any warnings/errors.
+    show_progress = sys.stderr.isatty() and not args.silent
+
     out_path = Path(args.out).expanduser().resolve()
     yml_path = out_path.with_suffix(".yml")
-    print(f"Writing output to\n  {out_path}", file=sys.stderr)
-    print(f"Writing run arguments to\n  {yml_path}", file=sys.stderr)
+    if show_progress:
+        print(f"Writing output to\n  {out_path}", file=sys.stderr)
+        print(f"Writing run arguments to\n  {yml_path}", file=sys.stderr)
     write_yaml_file(
         yml_path,
         build_run_metadata(args, out_path, n_min, percents, kpercents, scan_mode),
@@ -900,17 +893,22 @@ def main():
     processed_contigs = 0
     passed_scan = 0
     mode_label = "scan mode" if scan_mode else "report mode"
-    print(
-        f"Starting {mode_label}: {total_contigs} contigs queued, progress updates every "
-        f"{args.progress_every if args.progress_every > 0 else 'disabled'} contigs.",
-        file=sys.stderr,
-    )
+    if show_progress:
+        print(f"Starting {mode_label}: {total_contigs} contigs queued.", file=sys.stderr)
 
     # Collect per-contig depth histograms and stats to support virus-level pooling
     contig_depth_counts = {}  # vid -> Counter(depth -> npos)
     contig_stats = {}  # vid -> dict
 
-    for vid in virus_ids:
+    pbar = tqdm(
+        virus_ids,
+        disable=not show_progress,
+        unit="contig",
+        file=sys.stderr,
+        desc=mode_label,
+        miniters=args.progress_every if args.progress_every > 0 else None,
+    )
+    for vid in pbar:
         if scan_mode and scan_filter[0] in IDXSTATS_ONLY_SCAN_METRICS:
             static_metrics = {
                 "length": lengths[vid],
@@ -919,15 +917,6 @@ def main():
             }
             if not passes_scan_filter(static_metrics, scan_filter):
                 processed_contigs += 1
-                if args.progress_every > 0 and processed_contigs % args.progress_every == 0:
-                    print_progress_update(
-                        processed=processed_contigs,
-                        total=total_contigs,
-                        current_contig=vid,
-                        started_at=started_at,
-                        scan_mode=True,
-                        passed_scan=passed_scan,
-                    )
                 continue
 
         result = compute_contig_result(
@@ -949,15 +938,7 @@ def main():
                 print("\t".join(row), file=out_fh)
                 passed_scan += 1
             processed_contigs += 1
-            if args.progress_every > 0 and processed_contigs % args.progress_every == 0:
-                print_progress_update(
-                    processed=processed_contigs,
-                    total=total_contigs,
-                    current_contig=vid,
-                    started_at=started_at,
-                    scan_mode=True,
-                    passed_scan=passed_scan,
-                )
+            pbar.set_postfix(passed=passed_scan)
             continue
 
         contig_depth_counts[vid] = result["depth_counts"]
@@ -976,14 +957,6 @@ def main():
         row = build_contig_row(vid, id_to_name.get(vid, vid), result, n_min, percents, kpercents)
         print("\t".join(row), file=out_fh)
         processed_contigs += 1
-        if args.progress_every > 0 and processed_contigs % args.progress_every == 0:
-            print_progress_update(
-                processed=processed_contigs,
-                total=total_contigs,
-                current_contig=vid,
-                started_at=started_at,
-                scan_mode=False,
-            )
 
     # Virus-level rows (only if 2-column list provided)
     if not scan_mode and has_two_cols and name_to_ids:

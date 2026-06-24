@@ -154,9 +154,12 @@ If input file types are mixed or do not match `filetype`, the constructor exits.
 ### Configuration loading
 
 - `Pipeline.load_pipeline_config(config_path=None)`
-  Class method that loads the YAML configuration file, updates the class-level config cache, and refreshes both `envs4steps` and `reference_paths`.
+  Class method that loads the user YAML config (for `reference_paths`), updates the class-level config cache, and loads `AdVentSeq/conda_tools.yml` to refresh both `envs4steps` (derived by inverting each env's `steps:` list) and `conda_tools`.
 
-`Pipeline` keeps the active YAML path in the class attribute `Pipeline.config_path`. On import, the class default points at the bundled `pipeline_settings.yml.example` (`DEFAULT_ENV_CONFIG`), which ships with the package and contains a complete `envs4steps` block, so configuration loads out of the box. To switch to your own file for the rest of the session:
+- `Pipeline.set_conda_tools_config(path)`
+  Class method that overrides the bundled `conda_tools.yml` with a custom file. It fully replaces the bundled file (no merge) and immediately reloads it, refreshing both `Pipeline.conda_tools` and `Pipeline.envs4steps`. The same YAML/shape/duplicate-step validation applies. The override persists for the session, so a later `load_pipeline_config()` keeps using the custom file.
+
+`Pipeline` keeps the active YAML path in the class attribute `Pipeline.config_path`. On import, the class default points at the bundled `pipeline_settings.yml.example` (`DEFAULT_ENV_CONFIG`), which ships with the package, while the step &rarr; env mapping comes from the bundled `conda_tools.yml`, so configuration loads out of the box. To switch to your own file for the rest of the session:
 
 ```python
 Pipeline.load_pipeline_config("/path/to/your_pipeline_settings.yml")
@@ -241,24 +244,9 @@ Every step that activates a Conda environment also records that environment name
 
 ### Config file (YAML)
 
-The config supports two top-level sections:
+The user config (`pipeline_settings.yml`) holds a single top-level section, `reference_paths`:
 
 ```yaml
-envs4steps:
-  MultiQC: MultiQC
-  fastp: fastp
-  BWA_MEM: BWA
-  Bowtie2: Bowtie2
-  minimap2: minimap2
-  HISAT2: HISAT2
-  STAR: STAR
-  SAM2BAM: samtools
-  sort_BAM: samtools
-  BAM_stat: samtools
-  featureCounts: Subread
-  BAM2BigWig: deepTools
-  GATK4_Mutect2: gatk
-
 reference_paths:
   hg38:
     genome_fasta: /path/to/hg38.fa
@@ -269,6 +257,17 @@ reference_paths:
     star_index: /path/to/hg38/star_index
     gtf: /path/to/hg38.gtf
 ```
+
+The step &rarr; conda-env mapping is **not** in this file. It lives in the bundled
+`AdVentSeq/conda_tools.yml`, where each env entry declares the steps that run in it:
+
+```yaml
+BWA:      {steps: [BWA_MEM], package: bwa, version_cmd: "bwa 2>&1 | grep -i '^Version'"}
+samtools: {steps: [SAM2BAM, sort_BAM, BAM_stat, ...], package: samtools, version_cmd: "..."}
+gatk:     {steps: [GATK4_Mutect2], package: gatk4, version_cmd: "gatk --version 2>&1 | head -n1"}
+```
+
+`Pipeline.envs4steps` (step &rarr; env) is built by inverting those `steps:` lists at load time.
 
 If `ref_genome` is set on the `Pipeline` object and the same key exists in `reference_paths`, the module automatically populates `genome_fasta`, `bwa_index`, `bowtie2_index`, `minimap2_index`, `hisat2_index`, `star_index`, and `gtf`. Each setter validates that the underlying file, directory, or index prefix exists.
 

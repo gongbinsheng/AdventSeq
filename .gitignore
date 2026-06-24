@@ -52,3 +52,6 @@ test*
 
 # Large
 Resources/
+
+# created sripts
+install_conda_envs.sh

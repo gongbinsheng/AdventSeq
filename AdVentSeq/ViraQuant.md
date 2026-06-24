@@ -71,7 +71,8 @@ Key options (see `--help` for the full list):
 - `--percents` — quantile percents for Method A (default 50..100 step 10).
 - `--kpercents` — breadth percents for `pass_k_*pct_ge_*` flags.
 - `--min-mapq` — minimum mapping quality.
-- `--progress-every` — emit a stderr checkpoint every N contigs (default 100; `0` disables).
+- `--progress-every` — minimum number of contigs between progress-bar refreshes (tqdm `miniters`; default `0` lets tqdm refresh by time). Only affects the interactive progress bar.
+- `--silent` — never show the progress bar, even on an interactive terminal.
 
 ### Full-BAM scan mode (`--scan-by`)
 
@@ -81,7 +82,7 @@ If `--scan-by` is provided, the script switches to a full-BAM contig scan:
 - it reports only contigs passing the `--scan-by` comparison
 - it includes secondary alignments in depth calculations for scan mode only
 - it auto-adjusts `--n-min`, `--percents`, and `--kpercents` from the scan metric name when needed
-- it can emit plain stderr progress messages with `--progress-every`
+- it shows a tqdm progress bar (with a running `passed=` count) on an interactive terminal
 
 `--scan-by` accepts exactly one numeric comparison:
 
@@ -150,19 +151,23 @@ If `--viruses` is not provided, the script automatically reports the top N conti
 
 ## Outputs
 
-ViraQuant writes the TSV to `--out` and writes human-readable run messages to `stderr`, which makes it convenient to watch in an HPC job log.
+ViraQuant writes the TSV to `--out` and writes human-readable run messages to `stderr`.
 
-Progress logging behavior:
-- start line with the number of contigs queued
-- periodic checkpoint lines every `--progress-every N` contigs
-- final completion line with elapsed time
-- in scan mode, periodic lines also report how many contigs have passed the filter so far
+Progress logging behavior depends on whether `stderr` is an interactive terminal:
+- **Interactive terminal** — a single-line tqdm progress bar (in scan mode it also shows a running `passed=` count), plus start lines and a final completion line with elapsed time.
+- **Non-TTY (e.g. an HPC job log) or `--silent`** — no progress output at all; only the final completion line and any warnings/errors are written.
 
-Example stderr lines:
+Example stderr on an interactive terminal:
 
 ```text
-Starting scan mode: 12345 contigs queued, progress updates every 200 contigs.
-PROGRESS: processed 400/12345 contigs (3.2%), current=contig_X, elapsed=00:02:41, rate=2.5 contigs/s, passed=31
+Starting scan mode: 12345 contigs queued.
+scan mode:  53% 6500/12345 [00:42<00:37, 156.3contig/s, passed=412]
+Finished scan mode: processed 12345/12345 contigs, wrote 842 passing rows, elapsed=01:14:33.
+```
+
+In an HPC job log (non-TTY), only the final line appears:
+
+```text
 Finished scan mode: processed 12345/12345 contigs, wrote 842 passing rows, elapsed=01:14:33.
 ```
 
@@ -253,7 +258,6 @@ python ViraQuant.py \
 python ViraQuant.py \
   --bam sample.sorted.bam \
   --scan-by 'mean_depth_ge_2>=2' \
-  --progress-every 200 \
   --out passing_contigs.tsv
 ```
 
@@ -268,12 +272,15 @@ python ViraQuant.py \
 
 This run uses effective `--percents 80,85,90` and records that in `scan_depth85.yml`.
 
-### 6) Watch progress in an HPC log without a progress bar
+### 6) Run quietly (no progress bar)
+The progress bar only appears on an interactive terminal, so an HPC job log is already quiet
+(only the final report and any warnings/errors are written). Use `--silent` to suppress the bar
+even when running interactively:
 ```bash
 python ViraQuant.py \
   --bam sample.sorted.bam \
   --scan-by 'mapped_per_bp>=0.01' \
-  --progress-every 500 \
+  --silent \
   --out scan.tsv
 ```
 
