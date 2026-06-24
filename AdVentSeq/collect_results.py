@@ -117,9 +117,19 @@ def files_for_sample(file_index, library_id):
 
 # host-stage files:  <lib>.<host_mapper>.hg38.<...>
 _HOST_RE = re.compile(r"^[^.]+\.(?P<host>[^.]+)\.hg38\.")
-# virus-stage files: <lib>.<host_mapper>.hg38.unmapped2host.<virus_mapper>.<ref>.<...>
+# virus-stage alignment outputs: <lib>.<host_mapper>.hg38.unmapped2host.<virus_mapper>.<ref>.<...>
 _VIRUS_RE = re.compile(
     r"^[^.]+\.(?P<host>[^.]+)\.hg38\.unmapped2host\.(?P<virus>[^.]+)\.(?P<ref>[^.]+)\."
+)
+# Only these suffixes are genuine virus-alignment outputs. Other files share the
+# "...unmapped2host.<token>.<token>..." shape but are NOT virus alignments, e.g.
+# remove_read_pairs_mapped_to_host FASTQs (.unmapped2host.R1/R2/single/orphan.fastq.gz)
+# and Kraken2 (.unmapped2host.Kraken2_viral.report); they must not contribute a
+# spurious virus_mapper during auto-detection.
+_VIRUS_OUTPUT_SUFFIXES = (
+    ".unsorted.read_count.txt",
+    ".ViraQuant.tsv", ".ViraQuant.tsv.gz",
+    ".ViraQuant_scan.tsv", ".ViraQuant_scan.tsv.gz",
 )
 
 
@@ -143,14 +153,16 @@ def detect_mappers(file_index, samples, host_mapper, virus_mapper):
     hosts, viruses = set(), set()
     for lib in samples:
         for name, _ in files_for_sample(file_index, lib):
-            m = _VIRUS_RE.match(name)
-            if m:
-                hosts.add(m.group("host"))
-                viruses.add(m.group("virus"))
-                continue
+            # Host mapper: the token before ".hg38." is the genuine host aligner in
+            # every stage's file names.
             m = _HOST_RE.match(name)
             if m:
                 hosts.add(m.group("host"))
+            # Virus mapper: only trust genuine virus-alignment outputs.
+            if name.endswith(_VIRUS_OUTPUT_SUFFIXES):
+                mv = _VIRUS_RE.match(name)
+                if mv:
+                    viruses.add(mv.group("virus"))
     host = _select_token(None, hosts, host_mapper, "host_mapper")
     virus = _select_token(None, viruses, virus_mapper, "virus_mapper")
     return host, virus
