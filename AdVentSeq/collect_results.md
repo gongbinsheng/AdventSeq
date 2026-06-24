@@ -68,7 +68,7 @@ Each table is written as a `.tsv` and bundled as a sheet in `AdVentSeq_results.x
 | `kraken2` | `*.Kraken2_viral.report` | taxon × sample (clade-assigned reads) |
 | `scan_taxonomy_reads` / `scan_taxonomy_pairs` | `*<scan-ref>*.read_count.txt` | virus × sample direct counts |
 | `scan_summary` | same | per-sample mapped / primary / discordant / virus totals |
-| `viraquant_scan_coverage` | `*<scan-ref>*.ViraQuant_scan.tsv` | long/tidy coverage (variable contigs) |
+| `viraquant_scan_coverage` | `*<scan-ref>*.ViraQuant_scan.tsv` | long/tidy coverage (variable contigs); written **gzip-compressed** (`.tsv.gz`) and **not** included in the Excel workbook (it is large) |
 | `targeted_taxonomy_reads_<ref>` / `_pairs_<ref>` | `*<ref>*.read_count.txt` | virus × sample direct counts |
 | `targeted_summary_<ref>` | same | per-sample totals |
 | `viraquant_targeted_coverage_<ref>` | `*<ref>*.ViraQuant.tsv` | long/tidy coverage |
@@ -88,18 +88,24 @@ Controls:
 - **Normalized** toggle (default on) — divides each value by the sample's filtered
   (fastp after-filtering) total reads per million (CPM-style). `pass_*` booleans are
   shown as green/empty blocks and are never normalized.
-- **Threshold + Apply** — a per-measurement value; any cell whose **raw** value is
-  below it is shown empty. Defaults are `1` for integer measurements and `0.1` for
-  floats, seeded from `viraquant_targeted_thresholds.yml` written beside the HTML. The
-  threshold always compares the raw value (the toggle only changes what number is
-  displayed). Click **Apply** (or press Enter in the box) to update the table with the
-  new threshold and save all thresholds back to `viraquant_targeted_thresholds.yml`
-  (a browser download). Edits also persist in the browser via `localStorage`; on open
-  the loading order is `localStorage` > fetched sidecar YAML > embedded defaults (the
-  sidecar `fetch` works when the page is served over http, e.g. `python -m http.server`).
-- **Download table (.tsv)** — saves two TSVs of raw values for the current measurement
-  and reference: `viraquant_<ref>_<measurement>_raw.tsv` (all cells) and
-  `…_filtered.tsv` (cells below the threshold left empty, i.e. blank/NA in Excel).
+- **Threshold + Apply** — each measurement has **two** thresholds: a **raw** one and a
+  **normalized** one. The threshold applies to the value as displayed, and the input
+  switches with the Normalized toggle. Any cell whose displayed value is below the
+  active threshold is shown empty. Raw defaults are `1` for integer measurements and
+  `0.1` for floats; normalized thresholds default to `0` (no filtering — tune them).
+  Both are seeded from `viraquant_targeted_thresholds.yml` (flat keys
+  `<measure>.raw` / `<measure>.norm`). Click **Apply** (or press Enter) to update the
+  table and save all thresholds back to the YAML. Edits also persist via `localStorage`;
+  on open the order is `localStorage` > fetched sidecar YAML > embedded defaults.
+- **Output folder…** — pick a folder once (File System Access API, Chrome/Edge served
+  over http/localhost). Afterwards **Apply** and **Download table** write straight into
+  that folder, silently overwriting `viraquant_targeted_thresholds.yml` and the TSVs.
+  Without a granted folder (or in unsupported browsers / `file://`) they fall back to
+  normal downloads.
+- **Download table (.tsv)** — saves two TSVs for the current measurement and reference:
+  `viraquant_<ref>_<measurement>_raw.tsv` (raw values, all cells) and `…_filtered.tsv`
+  (the displayed values — raw or normalized — with the active threshold applied; cells
+  below it left empty, i.e. blank/NA in Excel).
 
 ## Related files
 
