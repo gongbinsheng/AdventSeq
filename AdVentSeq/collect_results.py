@@ -39,7 +39,6 @@ from collections import OrderedDict, defaultdict
 from pathlib import Path
 
 import pandas as pd
-import yaml
 
 try:
     from tqdm import tqdm
@@ -92,7 +91,6 @@ SUGGESTED_THRESHOLDS_NORM = {}
 
 WORKBOOK_NAME = "AdVentSeq_results.xlsx"
 INTERACTIVE_HTML_NAME = "viraquant_targeted_interactive.html"
-THRESHOLDS_YML_NAME = "viraquant_targeted_thresholds.yml"
 
 # Large/long tables: written gzip-compressed and kept out of the Excel workbook.
 GZIP_TSV_TABLES = {"viraquant_scan_coverage"}
@@ -597,23 +595,6 @@ def write_outputs(tables, out_dir):
 # Interactive HTML
 # ---------------------------------------------------------------------------
 
-def write_thresholds_yaml(out_dir, thresholds):
-    """Write the editable per-measurement threshold sidecar next to the HTML."""
-    path = os.path.join(out_dir, THRESHOLDS_YML_NAME)
-    header = (
-        "# AdVentSeq interactive table — per-measurement thresholds.\n"
-        "# Two thresholds per measurement: '<measure>.raw' applies in raw view and\n"
-        "# '<measure>.norm' in normalized view (value per million filtered reads).\n"
-        "# A cell whose displayed value is below the active threshold is shown/exported\n"
-        "# empty. The HTML rewrites this file on Apply; a stale browser localStorage\n"
-        "# value otherwise takes priority on load.\n"
-    )
-    with open(path, "w") as fh:
-        fh.write(header)
-        yaml.safe_dump(thresholds, fh, default_flow_style=False, sort_keys=True)
-    return path
-
-
 def build_interactive_html(targeted_long, out_dir, filtered_reads=None,
                            sample_titles=None):
     """Build a self-contained HTML viewer for targeted ViraQuant coverage.
@@ -683,23 +664,12 @@ def build_interactive_html(targeted_long, out_dir, filtered_reads=None,
         meta[c] = {"is_integer": is_int, "is_pass": is_pass,
                    "threshold_raw": thr_raw, "threshold_norm": thr_norm}
 
-    # Editable sidecar of the resolved thresholds (skip pass_* booleans). Flat keys
-    # "<measure>.raw" / "<measure>.norm" so the in-page parser stays trivial.
-    resolved_thresholds = {}
-    for c in measurement_cols:
-        if meta[c]["is_pass"]:
-            continue
-        resolved_thresholds[c + ".raw"] = meta[c]["threshold_raw"]
-        resolved_thresholds[c + ".norm"] = meta[c]["threshold_norm"]
-    write_thresholds_yaml(out_dir, resolved_thresholds)
-
     payload = {
         "refs": refs_payload,
         "measurements": measurement_cols,
         "meta": meta,
         "filtered_reads": filtered_reads or {},
         "sample_titles": sample_titles or {},
-        "thresholds_file": THRESHOLDS_YML_NAME,
         "default_measurement": (VIRAQUANT_PRIMARY_FIELDS[0]
                                 if VIRAQUANT_PRIMARY_FIELDS[0] in measurement_cols
                                 else measurement_cols[0]),
@@ -710,7 +680,6 @@ def build_interactive_html(targeted_long, out_dir, filtered_reads=None,
     with open(out_path, "w") as fh:
         fh.write(html_doc)
     eprint("Wrote interactive table: %s" % out_path)
-    eprint("Wrote thresholds sidecar: %s" % os.path.join(out_dir, THRESHOLDS_YML_NAME))
     return out_path
 
 
@@ -762,8 +731,8 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
 <p class="meta">Rows are samples (id + title), columns are viruses. Cells below the active
 threshold are shown empty. Each measurement has separate <b>raw</b> and <b>normalized</b>
 thresholds that switch with the toggle. Normalized = value per million filtered (fastp
-after-filtering) reads. Click <b>Output folder…</b> once to save the thresholds .yml and
-table .tsv straight into a folder (Chrome/Edge over http/localhost); otherwise they download.</p>
+after-filtering) reads. Threshold edits persist in this browser; <b>Download table</b>
+saves the TSVs to your browser's downloads folder.</p>
 <div class="controls">
   <div id="refbox" style="display:none">
     <label for="refsel">Reference</label>
@@ -782,11 +751,7 @@ table .tsv straight into a folder (Chrome/Edge over http/localhost); otherwise t
     <button id="applybtn" title="Apply the threshold to the table and save thresholds to .yml">Apply</button>
   </div>
   <div>
-    <button id="dlbtn" title="Save raw + threshold-filtered TSV of the current table">Download table (.tsv)</button>
-  </div>
-  <div>
-    <button id="folderbtn" title="Pick a folder to save files into without a dialog">Output folder…</button>
-    <span id="savestatus" class="meta"></span>
+    <button id="dlbtn" title="Download raw + threshold-filtered TSV of the current table">Download table (.tsv)</button>
   </div>
 </div>
 <div class="legend" id="legend"></div>
@@ -865,103 +830,12 @@ function loadLS() {
   try { return JSON.parse(localStorage.getItem(LS_KEY) || '{}'); } catch (e) { return {}; }
 }
 
-function parseThresholdsYaml(text) {
-  const out = {};
-  text.split(/\\r?\\n/).forEach(line => {
-    const t = line.trim();
-    if (!t || t[0] === '#') return;
-    const i = t.indexOf(':');
-    if (i < 0) return;
-    const k = t.slice(0, i).trim();
-    const v = t.slice(i + 1).trim();
-    if (k && v !== '' && !isNaN(Number(v))) out[k] = Number(v);
-  });
-  return out;
-}
-
-function thresholdsToYaml() {
-  const keys = DATA.measurements.filter(m => !metaOf(m).is_pass).sort();
-  const lines = ['# AdVentSeq interactive table - per-measurement thresholds (.raw / .norm).'];
-  keys.forEach(k => {
-    ['raw', 'norm'].forEach(mode => {
-      const v = thresholds[k + '.' + mode];
-      if (v !== undefined) lines.push(k + '.' + mode + ': ' + v);
-    });
-  });
-  return lines.join('\\n') + '\\n';
-}
-
 function downloadText(name, text, mime) {
   const blob = new Blob([text], {type: mime || 'text/plain'});
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob); a.download = name;
   document.body.appendChild(a); a.click();
   setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 0);
-}
-
-// ---- File System Access API: save into a user-granted folder (no per-file dialog) ----
-const FS_SUPPORTED = ('showDirectoryPicker' in window);
-let dirHandle = null;
-const IDB_DB = 'adventseq', IDB_STORE = 'handles', IDB_KEY = 'outdir';
-
-function idb() {
-  return new Promise((res, rej) => {
-    const r = indexedDB.open(IDB_DB, 1);
-    r.onupgradeneeded = () => r.result.createObjectStore(IDB_STORE);
-    r.onsuccess = () => res(r.result);
-    r.onerror = () => rej(r.error);
-  });
-}
-async function idbGet(k) {
-  const db = await idb();
-  return new Promise((res, rej) => {
-    const t = db.transaction(IDB_STORE, 'readonly').objectStore(IDB_STORE).get(k);
-    t.onsuccess = () => res(t.result); t.onerror = () => rej(t.error);
-  });
-}
-async function idbSet(k, v) {
-  const db = await idb();
-  return new Promise((res, rej) => {
-    const t = db.transaction(IDB_STORE, 'readwrite').objectStore(IDB_STORE).put(v, k);
-    t.onsuccess = () => res(); t.onerror = () => rej(t.error);
-  });
-}
-function saveStatus(msg) { document.getElementById('savestatus').textContent = msg; }
-function updateFolderStatus() {
-  saveStatus(dirHandle ? ('Saving into folder: ' + dirHandle.name) :
-    (FS_SUPPORTED ? '' : 'Folder save unsupported here; files will download.'));
-}
-async function ensurePermission(handle) {
-  if (!handle) return false;
-  const opts = {mode: 'readwrite'};
-  if ((await handle.queryPermission(opts)) === 'granted') return true;
-  return (await handle.requestPermission(opts)) === 'granted';
-}
-async function pickFolder() {
-  if (!FS_SUPPORTED) { updateFolderStatus(); return null; }
-  try {
-    dirHandle = await window.showDirectoryPicker({mode: 'readwrite'});
-    await idbSet(IDB_KEY, dirHandle);
-    updateFolderStatus();
-    return dirHandle;
-  } catch (e) { return null; }  // user cancelled
-}
-async function writeToFolder(name, text) {
-  if (!FS_SUPPORTED) return false;
-  if (!dirHandle) { if (!await pickFolder()) return false; }
-  if (!await ensurePermission(dirHandle)) return false;
-  try {
-    const fh = await dirHandle.getFileHandle(name, {create: true});
-    const w = await fh.createWritable();
-    await w.write(text); await w.close();
-    return true;
-  } catch (e) { return false; }
-}
-// Save into the granted folder (silent overwrite); fall back to a normal download.
-async function saveFile(name, text, mime) {
-  if (await writeToFolder(name, text)) { saveStatus('Saved ' + name + ' to ' + dirHandle.name); return; }
-  downloadText(name, text, mime);
-  saveStatus('Downloaded ' + name);
 }
 
 function safeName(s) { return String(s).replace(/[^A-Za-z0-9_.-]+/g, '_'); }
@@ -999,10 +873,10 @@ function tableToTsv(filtered) {
 function downloadTable() {
   const ref = safeName(refSel.value || refNames[0]);
   const measure = safeName(measureSel.value);
-  saveFile('viraquant_' + ref + '_' + measure + '_raw.tsv',
-           tableToTsv(false), 'text/tab-separated-values');
-  saveFile('viraquant_' + ref + '_' + measure + '_filtered.tsv',
-           tableToTsv(true), 'text/tab-separated-values');
+  downloadText('viraquant_' + ref + '_' + measure + '_raw.tsv',
+               tableToTsv(false), 'text/tab-separated-values');
+  downloadText('viraquant_' + ref + '_' + measure + '_filtered.tsv',
+               tableToTsv(true), 'text/tab-separated-values');
 }
 
 // Sync the threshold input to the current measurement + view mode (raw vs normalized).
@@ -1080,8 +954,8 @@ measureSel.addEventListener('change', () => { syncControls(); render(); });
 // Toggling raw/normalized swaps in that mode's threshold for the current measurement.
 normToggle.addEventListener('change', () => { syncControls(); render(); });
 
-// Apply: set the current measurement+mode threshold from the input, re-render, and save
-// all thresholds to the .yml sidecar (folder write, or download fallback).
+// Apply: set the current measurement+mode threshold from the input, persist to
+// localStorage, and re-render.
 function applyThreshold() {
   const measure = measureSel.value;
   if (!metaOf(measure).is_pass) {
@@ -1090,24 +964,14 @@ function applyThreshold() {
   }
   persist();
   render();
-  saveFile(DATA.thresholds_file || 'viraquant_targeted_thresholds.yml',
-           thresholdsToYaml(), 'text/yaml');
 }
 document.getElementById('applybtn').addEventListener('click', applyThreshold);
 thrInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') applyThreshold(); });
 document.getElementById('dlbtn').addEventListener('click', downloadTable);
-document.getElementById('folderbtn').addEventListener('click', pickFolder);
 
-async function init() {
-  // Precedence: localStorage > fetched sidecar yml > embedded defaults.
-  try {
-    const resp = await fetch(DATA.thresholds_file, {cache: 'no-store'});
-    if (resp.ok) { Object.assign(thresholds, parseThresholdsYaml(await resp.text())); }
-  } catch (e) { /* file:// fetch is often blocked; fall back to localStorage */ }
+function init() {
+  // localStorage overrides the embedded defaults (persists in this browser, file:// ok).
   Object.assign(thresholds, loadLS());
-  // Restore a previously granted output folder, if any.
-  if (FS_SUPPORTED) { try { dirHandle = await idbGet(IDB_KEY) || null; } catch (e) {} }
-  updateFolderStatus();
   syncControls();
   render();
 }

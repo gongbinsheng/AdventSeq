@@ -93,19 +93,14 @@ Controls:
   switches with the Normalized toggle. Any cell whose displayed value is below the
   active threshold is shown empty. Raw defaults are `1` for integer measurements and
   `0.1` for floats; normalized thresholds default to `0` (no filtering — tune them).
-  Both are seeded from `viraquant_targeted_thresholds.yml` (flat keys
-  `<measure>.raw` / `<measure>.norm`). Click **Apply** (or press Enter) to update the
-  table and save all thresholds back to the YAML. Edits also persist via `localStorage`;
-  on open the order is `localStorage` > fetched sidecar YAML > embedded defaults.
-- **Output folder…** — pick a folder once (File System Access API, Chrome/Edge served
-  over http/localhost). Afterwards **Apply** and **Download table** write straight into
-  that folder, silently overwriting `viraquant_targeted_thresholds.yml` and the TSVs.
-  Without a granted folder (or in unsupported browsers / `file://`) they fall back to
-  normal downloads.
-- **Download table (.tsv)** — saves two TSVs for the current measurement and reference:
-  `viraquant_<ref>_<measurement>_raw.tsv` (raw values, all cells) and `…_filtered.tsv`
-  (the displayed values — raw or normalized — with the active threshold applied; cells
-  below it left empty, i.e. blank/NA in Excel).
+  Defaults come from the script's `SUGGESTED_THRESHOLDS` / `SUGGESTED_THRESHOLDS_NORM`
+  dicts (edit them and regenerate to change the built-in defaults). Click **Apply** (or
+  press Enter) to update the table; edits persist per-browser via `localStorage` (works
+  even when the page is opened directly as a `file://` document).
+- **Download table (.tsv)** — downloads two TSVs for the current measurement and
+  reference (to your browser's downloads folder): `viraquant_<ref>_<measurement>_raw.tsv`
+  (raw values, all cells) and `…_filtered.tsv` (the displayed values — raw or normalized
+  — with the active threshold applied; cells below it left empty, i.e. blank/NA in Excel).
 
 ## Related files
 
