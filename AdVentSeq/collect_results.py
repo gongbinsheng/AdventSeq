@@ -886,6 +886,8 @@ function syncControls() {
   thrInput.disabled = isPass;
   normToggle.disabled = isPass;
   thrInput.value = isPass ? '' : thrOf(measure);
+  // Up/down step: 1 for integer measurements, 0.1 for float measurements.
+  thrInput.step = metaOf(measure).is_integer ? '1' : '0.1';
 }
 
 function render() {
