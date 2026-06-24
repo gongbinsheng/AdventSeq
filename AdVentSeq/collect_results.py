@@ -732,16 +732,12 @@ per-measurement threshold are shown empty. Normalized = value per million filter
     <select id="measuresel"></select>
   </div>
   <div>
-    <label for="thrinput">Threshold</label>
-    <input type="number" id="thrinput" step="any" min="0">
-  </div>
-  <div>
     <label><input type="checkbox" id="normtoggle" checked> Normalized</label>
   </div>
   <div>
-    <button id="savebtn" title="Download the current thresholds as a .yml file">Save thresholds (.yml)</button>
-    <button id="loadbtn" title="Load thresholds from a .yml file">Load thresholds (.yml)…</button>
-    <input type="file" id="loadyml" accept=".yml,.yaml" style="display:none">
+    <label for="thrinput">Threshold</label>
+    <input type="number" id="thrinput" step="any" min="0">
+    <button id="applybtn" title="Apply the threshold to the table and save thresholds to .yml">Apply</button>
   </div>
   <div>
     <button id="dlbtn" title="Download raw + threshold-filtered TSV of the current table">Download table (.tsv)</button>
@@ -759,7 +755,6 @@ const measureSel = document.getElementById('measuresel');
 const refbox = document.getElementById('refbox');
 const thrInput = document.getElementById('thrinput');
 const normToggle = document.getElementById('normtoggle');
-const loadYml = document.getElementById('loadyml');
 
 const refNames = Object.keys(DATA.refs);
 refNames.forEach(r => {
@@ -937,28 +932,22 @@ function render() {
 refSel.addEventListener('change', render);
 measureSel.addEventListener('change', () => { syncControls(); render(); });
 normToggle.addEventListener('change', render);
-thrInput.addEventListener('change', () => {
+
+// Apply: set the current measurement's threshold from the input, re-render, and save
+// all thresholds to the .yml sidecar (browser download).
+function applyThreshold() {
   const measure = measureSel.value;
-  if (metaOf(measure).is_pass) return;
-  const v = Number(thrInput.value);
-  if (!isNaN(v)) { thresholds[measure] = v; persist(); render(); }
-});
-document.getElementById('savebtn').addEventListener('click', () => {
+  if (!metaOf(measure).is_pass) {
+    const v = Number(thrInput.value);
+    if (!isNaN(v)) thresholds[measure] = v;
+  }
+  persist();
+  render();
   downloadText(DATA.thresholds_file || 'viraquant_targeted_thresholds.yml',
                thresholdsToYaml(), 'text/yaml');
-});
-document.getElementById('loadbtn').addEventListener('click', () => loadYml.click());
-loadYml.addEventListener('change', () => {
-  const file = loadYml.files && loadYml.files[0];
-  if (!file) return;
-  const reader = new FileReader();
-  reader.onload = () => {
-    Object.assign(thresholds, parseThresholdsYaml(String(reader.result)));
-    persist(); syncControls(); render();
-  };
-  reader.readAsText(file);
-  loadYml.value = '';
-});
+}
+document.getElementById('applybtn').addEventListener('click', applyThreshold);
+thrInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') applyThreshold(); });
 document.getElementById('dlbtn').addEventListener('click', downloadTable);
 
 async function init() {

@@ -87,16 +87,15 @@ Controls:
 - **Normalized** toggle (default on) — divides each value by the sample's filtered
   (fastp after-filtering) total reads per million (CPM-style). `pass_*` booleans are
   shown as green/empty blocks and are never normalized.
-- **Threshold** — a per-measurement value; any cell whose **raw** value is below it is
-  shown empty. Defaults are `1` for integer measurements and `0.1` for floats, seeded
-  from `viraquant_targeted_thresholds.yml` written beside the HTML. The threshold
-  always compares the raw value (the toggle only changes what number is displayed).
-- **Save / Load thresholds (.yml)** — Save downloads the current thresholds as
-  `viraquant_targeted_thresholds.yml`; Load imports an edited file. Edits also persist
-  in the browser via `localStorage`. Loading order on open is
-  `localStorage` > fetched sidecar YAML > embedded defaults — so to apply hand-edits to
-  the YAML, use the **Load** button (a stale `localStorage` value otherwise wins). The
-  sidecar `fetch` works when the page is served over http (e.g. `python -m http.server`).
+- **Threshold + Apply** — a per-measurement value; any cell whose **raw** value is
+  below it is shown empty. Defaults are `1` for integer measurements and `0.1` for
+  floats, seeded from `viraquant_targeted_thresholds.yml` written beside the HTML. The
+  threshold always compares the raw value (the toggle only changes what number is
+  displayed). Click **Apply** (or press Enter in the box) to update the table with the
+  new threshold and save all thresholds back to `viraquant_targeted_thresholds.yml`
+  (a browser download). Edits also persist in the browser via `localStorage`; on open
+  the loading order is `localStorage` > fetched sidecar YAML > embedded defaults (the
+  sidecar `fetch` works when the page is served over http, e.g. `python -m http.server`).
 - **Download table (.tsv)** — saves two TSVs of raw values for the current measurement
   and reference: `viraquant_<ref>_<measurement>_raw.tsv` (all cells) and
   `…_filtered.tsv` (cells below the threshold left empty, i.e. blank/NA in Excel).
