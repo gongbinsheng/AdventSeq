@@ -39,6 +39,7 @@ from collections import OrderedDict, defaultdict
 from pathlib import Path
 
 import pandas as pd
+import yaml
 
 try:
     from tqdm import tqdm
@@ -56,11 +57,37 @@ VIRAQUANT_PRIMARY_FIELDS = [
     "median_depth_ge_1",
     "frac_ge_1",
 ]
-# Non-measurement identity columns in a ViraQuant TSV.
-VIRAQUANT_ID_COLS = {"level", "virus", "seq_id", "n_contigs", "best_contig_id"}
+# Non-measurement identity columns in a ViraQuant TSV. "length" is a contig length,
+# not a measurement, so it is excluded from the interactive measurement list too.
+VIRAQUANT_ID_COLS = {"level", "virus", "seq_id", "n_contigs", "best_contig_id", "length"}
+
+# Default per-measurement thresholds for the interactive table: a cell whose RAW value
+# is below its measurement's threshold is rendered/exported empty. The rule is 1 for
+# integer-valued measurements and 0.1 for float-valued ones; edit freely. Measurements
+# not listed here fall back to that rule based on their observed value type. pass_*
+# booleans are rendered as colour blocks and are not thresholded.
+SUGGESTED_THRESHOLDS = {
+    "mapped_reads": 1,
+    "depth_at_50pct": 1,
+    "depth_at_60pct": 1,
+    "depth_at_70pct": 1,
+    "depth_at_80pct": 1,
+    "depth_at_90pct": 1,
+    "depth_at_100pct": 1,
+    "median_depth_ge_1": 1,
+    "best_contig_depth_at_90pct": 1,
+    "mean_depth_all": 0.1,
+    "mean_depth_ge_1": 0.1,
+    "frac_ge_1": 0.1,
+    "breadth_cov_gt0": 0.1,
+    "mapped_per_bp": 0.1,
+    "best_contig_mapped_per_bp": 0.1,
+    "best_contig_frac_ge_1": 0.1,
+}
 
 WORKBOOK_NAME = "AdVentSeq_results.xlsx"
 INTERACTIVE_HTML_NAME = "viraquant_targeted_interactive.html"
+THRESHOLDS_YML_NAME = "viraquant_targeted_thresholds.yml"
 
 
 def eprint(*args):
@@ -548,14 +575,32 @@ def write_outputs(tables, out_dir):
 # Interactive HTML
 # ---------------------------------------------------------------------------
 
-def build_interactive_html(targeted_long, out_dir):
+def write_thresholds_yaml(out_dir, thresholds):
+    """Write the editable per-measurement threshold sidecar next to the HTML."""
+    path = os.path.join(out_dir, THRESHOLDS_YML_NAME)
+    header = (
+        "# AdVentSeq interactive table — per-measurement thresholds.\n"
+        "# A cell whose RAW value is below its measurement's threshold is shown/\n"
+        "# exported empty. Edit values here, then use the \"Load thresholds\" button\n"
+        "# in the HTML (a stale browser localStorage value otherwise takes priority).\n"
+    )
+    with open(path, "w") as fh:
+        fh.write(header)
+        yaml.safe_dump(thresholds, fh, default_flow_style=False, sort_keys=True)
+    return path
+
+
+def build_interactive_html(targeted_long, out_dir, filtered_reads=None):
     """Build a self-contained HTML viewer for targeted ViraQuant coverage.
 
     targeted_long: dict ref_name -> long DataFrame (with 'sample_id', 'level',
     'virus', and measurement columns).
+    filtered_reads: {sample_id: fastp after-filtering total reads} for CPM-style
+    normalization in the viewer.
     """
     refs_payload = OrderedDict()
     measurement_cols = []
+    meas_is_int = {}  # measurement -> all observed values are integral
     for ref, df in targeted_long.items():
         if df is None or df.empty:
             continue
@@ -577,6 +622,7 @@ def build_interactive_html(targeted_long, out_dir):
         for c in ordered:
             if c not in measurement_cols:
                 measurement_cols.append(c)
+            meas_is_int.setdefault(c, True)
         samples = list(dict.fromkeys(virus_df["sample_id"].tolist()))
         viruses = list(dict.fromkeys(virus_df["virus"].astype(str).tolist()))
         records = []
@@ -584,8 +630,13 @@ def build_interactive_html(targeted_long, out_dir):
             rec = {"sample_id": r["sample_id"], "virus": str(r["virus"])}
             for c in ordered:
                 val = r[c]
-                rec[c] = None if pd.isna(val) else (
-                    float(val) if not float(val).is_integer() else int(val))
+                if pd.isna(val):
+                    rec[c] = None
+                elif float(val).is_integer():
+                    rec[c] = int(val)
+                else:
+                    rec[c] = float(val)
+                    meas_is_int[c] = False
             records.append(rec)
         refs_payload[ref] = {
             "samples": samples,
@@ -596,9 +647,25 @@ def build_interactive_html(targeted_long, out_dir):
         eprint("Warning: no targeted ViraQuant data; skipping interactive HTML.")
         return None
 
+    # Per-measurement metadata: integer-ness, default threshold, boolean flag.
+    meta = OrderedDict()
+    for c in measurement_cols:
+        is_pass = c.startswith("pass_")
+        is_int = meas_is_int.get(c, True)
+        threshold = SUGGESTED_THRESHOLDS.get(c, 1 if is_int else 0.1)
+        meta[c] = {"is_integer": is_int, "is_pass": is_pass, "threshold": threshold}
+
+    # Editable sidecar of the resolved thresholds (skip pass_* booleans).
+    resolved_thresholds = {c: meta[c]["threshold"]
+                           for c in measurement_cols if not meta[c]["is_pass"]}
+    write_thresholds_yaml(out_dir, resolved_thresholds)
+
     payload = {
         "refs": refs_payload,
         "measurements": measurement_cols,
+        "meta": meta,
+        "filtered_reads": filtered_reads or {},
+        "thresholds_file": THRESHOLDS_YML_NAME,
         "default_measurement": (VIRAQUANT_PRIMARY_FIELDS[0]
                                 if VIRAQUANT_PRIMARY_FIELDS[0] in measurement_cols
                                 else measurement_cols[0]),
@@ -609,6 +676,7 @@ def build_interactive_html(targeted_long, out_dir):
     with open(out_path, "w") as fh:
         fh.write(html_doc)
     eprint("Wrote interactive table: %s" % out_path)
+    eprint("Wrote thresholds sidecar: %s" % os.path.join(out_dir, THRESHOLDS_YML_NAME))
     return out_path
 
 
@@ -622,10 +690,15 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
   body { font-family: -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
          margin: 1.5rem; color: #1f2937; }
   h1 { font-size: 1.3rem; }
-  .controls { margin: 1rem 0; display: flex; gap: 1.5rem; flex-wrap: wrap;
+  .controls { margin: 1rem 0; display: flex; gap: 1.2rem; flex-wrap: wrap;
               align-items: center; }
+  .controls > div { display: flex; align-items: center; }
   label { font-weight: 600; margin-right: .4rem; }
-  select { font-size: 1rem; padding: .25rem .4rem; }
+  select, input[type=number] { font-size: 1rem; padding: .25rem .4rem; }
+  input[type=number] { width: 6.5rem; }
+  button { font-size: .9rem; padding: .35rem .7rem; cursor: pointer;
+           border: 1px solid #9ca3af; border-radius: 4px; background: #f3f4f6; }
+  button:hover { background: #e5e7eb; }
   table { border-collapse: collapse; margin-top: .5rem; font-variant-numeric: tabular-nums; }
   th, td { border: 1px solid #d1d5db; padding: .3rem .55rem; text-align: right; }
   th.viruscol, td.viruscol { text-align: left; position: sticky; left: 0;
@@ -641,12 +714,14 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
   .swatch { display: inline-block; width: .9rem; height: .9rem; vertical-align: middle;
             border: 1px solid #d1d5db; margin: 0 .25rem 0 .6rem; }
   .swatch.on { background: #16a34a; }
+  .status { color: #374151; font-size: .85rem; margin: .35rem 0 0; }
 </style>
 </head>
 <body>
 <h1>Targeted ViraQuant coverage</h1>
-<p class="meta">Rows are viruses, columns are samples. Pick a measurement (and a
-targeted reference, if more than one) to update the table.</p>
+<p class="meta">Rows are viruses, columns are samples. Cells with a raw value below the
+per-measurement threshold are shown empty. Normalized = value per million filtered
+(fastp after-filtering) reads.</p>
 <div class="controls">
   <div id="refbox" style="display:none">
     <label for="refsel">Reference</label>
@@ -656,22 +731,42 @@ targeted reference, if more than one) to update the table.</p>
     <label for="measuresel">Measurement</label>
     <select id="measuresel"></select>
   </div>
+  <div>
+    <label for="thrinput">Threshold</label>
+    <input type="number" id="thrinput" step="any" min="0">
+  </div>
+  <div>
+    <label><input type="checkbox" id="normtoggle" checked> Normalized</label>
+  </div>
+  <div>
+    <button id="savebtn" title="Download the current thresholds as a .yml file">Save thresholds (.yml)</button>
+    <button id="loadbtn" title="Load thresholds from a .yml file">Load thresholds (.yml)…</button>
+    <input type="file" id="loadyml" accept=".yml,.yaml" style="display:none">
+  </div>
+  <div>
+    <button id="dlbtn" title="Download raw + threshold-filtered TSV of the current table">Download table (.tsv)</button>
+  </div>
 </div>
 <div class="legend" id="legend"></div>
+<div class="status" id="status"></div>
 <div class="wrap"><table id="tbl"><thead></thead><tbody></tbody></table></div>
 <script>
 const DATA = __DATA__;
+const LS_KEY = 'adventseq_viraquant_thresholds';
 
 const refSel = document.getElementById('refsel');
 const measureSel = document.getElementById('measuresel');
 const refbox = document.getElementById('refbox');
+const thrInput = document.getElementById('thrinput');
+const normToggle = document.getElementById('normtoggle');
+const loadYml = document.getElementById('loadyml');
 
 const refNames = Object.keys(DATA.refs);
 refNames.forEach(r => {
   const o = document.createElement('option'); o.value = r; o.textContent = r;
   refSel.appendChild(o);
 });
-if (refNames.length > 1) { refbox.style.display = 'block'; }
+if (refNames.length > 1) { refbox.style.display = 'flex'; }
 
 DATA.measurements.forEach(m => {
   const o = document.createElement('option'); o.value = m; o.textContent = m;
@@ -679,27 +774,126 @@ DATA.measurements.forEach(m => {
   measureSel.appendChild(o);
 });
 
+// thresholds: start from embedded defaults; init() overlays sidecar yml + localStorage.
+const thresholds = {};
+DATA.measurements.forEach(m => {
+  const mt = DATA.meta[m];
+  if (mt && !mt.is_pass) thresholds[m] = mt.threshold;
+});
+
+function metaOf(m) { return DATA.meta[m] || {}; }
+
 function fmt(v) {
   if (v === null || v === undefined) return '';
   if (Number.isInteger(v)) return v.toLocaleString();
   return (Math.abs(v) < 1e-3 && v !== 0) ? v.toExponential(3) : v.toFixed(4);
 }
 
+// normalized value = raw / (filtered_reads[sample] / 1e6); null if reads missing/zero.
+function normalize(raw, sample) {
+  const reads = DATA.filtered_reads[sample];
+  if (!reads) return null;
+  return raw / (reads / 1e6);
+}
+
+function persist() {
+  try { localStorage.setItem(LS_KEY, JSON.stringify(thresholds)); } catch (e) {}
+}
+function loadLS() {
+  try { return JSON.parse(localStorage.getItem(LS_KEY) || '{}'); } catch (e) { return {}; }
+}
+
+function parseThresholdsYaml(text) {
+  const out = {};
+  text.split(/\\r?\\n/).forEach(line => {
+    const t = line.trim();
+    if (!t || t[0] === '#') return;
+    const i = t.indexOf(':');
+    if (i < 0) return;
+    const k = t.slice(0, i).trim();
+    const v = t.slice(i + 1).trim();
+    if (k && v !== '' && !isNaN(Number(v))) out[k] = Number(v);
+  });
+  return out;
+}
+
+function thresholdsToYaml() {
+  const keys = DATA.measurements.filter(m => !metaOf(m).is_pass).sort();
+  const lines = ['# AdVentSeq interactive table - per-measurement thresholds.'];
+  keys.forEach(k => { if (thresholds[k] !== undefined) lines.push(k + ': ' + thresholds[k]); });
+  return lines.join('\\n') + '\\n';
+}
+
+function downloadText(name, text, mime) {
+  const blob = new Blob([text], {type: mime || 'text/plain'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = name;
+  document.body.appendChild(a); a.click();
+  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 0);
+}
+
+function safeName(s) { return String(s).replace(/[^A-Za-z0-9_.-]+/g, '_'); }
+
+// Build a virus x sample TSV of RAW values for the current measurement/reference.
+function tableToTsv(applyThreshold) {
+  const ref = refSel.value || refNames[0];
+  const measure = measureSel.value;
+  const isPass = !!metaOf(measure).is_pass;
+  const thr = isPass ? 1 : thresholds[measure];
+  const block = DATA.refs[ref];
+  const samples = block.samples, viruses = block.viruses;
+  const lookup = {};
+  block.records.forEach(rec => { lookup[rec.virus + '\\u0000' + rec.sample_id] = rec[measure]; });
+  const lines = ['virus\\t' + samples.join('\\t')];
+  viruses.forEach(v => {
+    const cells = samples.map(s => {
+      const raw = lookup[v + '\\u0000' + s];
+      if (raw === null || raw === undefined) return '';
+      if (applyThreshold && thr !== undefined && thr !== null && raw < thr) return '';
+      return String(raw);
+    });
+    lines.push(v + '\\t' + cells.join('\\t'));
+  });
+  return lines.join('\\n') + '\\n';
+}
+
+function downloadTable() {
+  const ref = safeName(refSel.value || refNames[0]);
+  const measure = safeName(measureSel.value);
+  downloadText('viraquant_' + ref + '_' + measure + '_raw.tsv',
+               tableToTsv(false), 'text/tab-separated-values');
+  downloadText('viraquant_' + ref + '_' + measure + '_filtered.tsv',
+               tableToTsv(true), 'text/tab-separated-values');
+}
+
+// Sync the threshold input + toggle state to the current measurement.
+function syncControls() {
+  const measure = measureSel.value;
+  const isPass = !!metaOf(measure).is_pass;
+  thrInput.disabled = isPass;
+  normToggle.disabled = isPass;
+  thrInput.value = isPass ? '' : thresholds[measure];
+}
+
 function render() {
   const ref = refSel.value || refNames[0];
   const measure = measureSel.value;
-  // pass_* measurements are boolean (1/0): render as colour blocks, not numbers.
-  const isPass = measure.indexOf('pass_') === 0;
+  const isPass = !!metaOf(measure).is_pass;
+  const thr = thresholds[measure];
+  const normalized = normToggle.checked && !isPass;
   const block = DATA.refs[ref];
   const samples = block.samples;
   const viruses = block.viruses;
-  // index records by virus|sample
   const lookup = {};
   block.records.forEach(rec => { lookup[rec.virus + '\\u0000' + rec.sample_id] = rec[measure]; });
 
   document.getElementById('legend').innerHTML = isPass
     ? 'Boolean: <span class="swatch on"></span> true (1) <span class="swatch"></span> false (0)'
     : '';
+  document.getElementById('status').textContent = isPass
+    ? 'Showing pass/fail blocks.'
+    : ('Values: ' + (normalized ? 'normalized (per million filtered reads)' : 'raw')
+       + ' | threshold (on raw): ' + thr);
 
   const thead = document.querySelector('#tbl thead');
   const tbody = document.querySelector('#tbl tbody');
@@ -712,15 +906,28 @@ function render() {
   viruses.forEach(v => {
     body += '<tr><td class="viruscol">' + v + '</td>';
     samples.forEach(s => {
-      const val = lookup[v + '\\u0000' + s];
+      const raw = lookup[v + '\\u0000' + s];
       if (isPass) {
-        const cls = (val === 1) ? 'passcell passtrue' : 'passcell';
-        const title = (val === 1) ? 'true' : (val === 0 ? 'false' : 'n/a');
+        const cls = (raw === 1) ? 'passcell passtrue' : 'passcell';
+        const title = (raw === 1) ? 'true' : (raw === 0 ? 'false' : 'n/a');
         body += '<td class="' + cls + '" title="' + title + '"></td>';
-      } else {
-        const cls = (val === 0 || val === null || val === undefined) ? ' class="zero"' : '';
-        body += '<td' + cls + '>' + fmt(val) + '</td>';
+        return;
       }
+      // Threshold filter is applied to the RAW value.
+      if (raw === null || raw === undefined ||
+          (thr !== undefined && thr !== null && raw < thr)) {
+        body += '<td class="zero"></td>';
+        return;
+      }
+      let shown = raw;
+      if (normalized) {
+        shown = normalize(raw, s);
+        if (shown === null) {  // no read count for this sample
+          body += '<td class="zero" title="no read count"></td>';
+          return;
+        }
+      }
+      body += '<td>' + fmt(shown) + '</td>';
     });
     body += '</tr>';
   });
@@ -728,8 +935,43 @@ function render() {
 }
 
 refSel.addEventListener('change', render);
-measureSel.addEventListener('change', render);
-render();
+measureSel.addEventListener('change', () => { syncControls(); render(); });
+normToggle.addEventListener('change', render);
+thrInput.addEventListener('change', () => {
+  const measure = measureSel.value;
+  if (metaOf(measure).is_pass) return;
+  const v = Number(thrInput.value);
+  if (!isNaN(v)) { thresholds[measure] = v; persist(); render(); }
+});
+document.getElementById('savebtn').addEventListener('click', () => {
+  downloadText(DATA.thresholds_file || 'viraquant_targeted_thresholds.yml',
+               thresholdsToYaml(), 'text/yaml');
+});
+document.getElementById('loadbtn').addEventListener('click', () => loadYml.click());
+loadYml.addEventListener('change', () => {
+  const file = loadYml.files && loadYml.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    Object.assign(thresholds, parseThresholdsYaml(String(reader.result)));
+    persist(); syncControls(); render();
+  };
+  reader.readAsText(file);
+  loadYml.value = '';
+});
+document.getElementById('dlbtn').addEventListener('click', downloadTable);
+
+async function init() {
+  // Precedence: localStorage > fetched sidecar yml > embedded defaults.
+  try {
+    const resp = await fetch(DATA.thresholds_file, {cache: 'no-store'});
+    if (resp.ok) { Object.assign(thresholds, parseThresholdsYaml(await resp.text())); }
+  } catch (e) { /* file:// fetch is often blocked; fall back to localStorage */ }
+  Object.assign(thresholds, loadLS());
+  syncControls();
+  render();
+}
+init();
 </script>
 </body>
 </html>
@@ -788,7 +1030,14 @@ def main():
     tables = []
 
     # 1. sample info / fastp QC
-    tables.append(("sample_info", build_sample_info(samples, file_index)))
+    sample_info = build_sample_info(samples, file_index)
+    tables.append(("sample_info", sample_info))
+    # Per-sample filtered (fastp after-filtering) total reads for CPM normalization.
+    filtered_reads = {
+        str(lib): (int(reads) if pd.notna(reads) else None)
+        for lib, reads in zip(sample_info["library_ID"],
+                              sample_info["fastp_after_total_reads"])
+    }
 
     # 2. host gene quantification
     for kind, label in (("count_reads", "host_featureCounts_by_reads"),
@@ -837,7 +1086,7 @@ def main():
 
     eprint("Writing %d tables to %s ..." % (len(tables), o.out_dir))
     write_outputs(tables, o.out_dir)
-    build_interactive_html(targeted_long, o.out_dir)
+    build_interactive_html(targeted_long, o.out_dir, filtered_reads=filtered_reads)
     eprint("Done.")
 
 
