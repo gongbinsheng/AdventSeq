@@ -224,8 +224,9 @@ def parse_featurecounts(path):
 def parse_kraken2(path):
     """Parse a Kraken2 report into a DataFrame.
 
-    Columns: pct, clade_reads, taxon_reads, rank_code, ncbi_taxid, name (the name
-    is leading-space indented in the report; it is stripped here).
+    Columns: pct, clade_reads, taxon_reads, rank_code, ncbi_taxid, name. The name
+    is leading-space indented in the report to convey the rank depth; that
+    indentation is preserved (only the trailing newline is removed).
     """
     rows = []
     with open_text(path) as fh:
@@ -236,7 +237,8 @@ def parse_kraken2(path):
             if len(parts) < 6:
                 continue
             pct, clade_reads, taxon_reads, rank_code, taxid = parts[:5]
-            name = parts[5].strip()
+            # Keep the leading whitespace: it encodes the taxon's rank depth.
+            name = parts[5].rstrip()
             rows.append({
                 "ncbi_taxid": taxid.strip(),
                 "rank_code": rank_code.strip(),
