@@ -40,6 +40,11 @@ from pathlib import Path
 
 import pandas as pd
 
+try:
+    from tqdm import tqdm
+except ImportError:  # tqdm is a runtime dependency, but degrade gracefully.
+    tqdm = None
+
 
 # Curated ViraQuant measurement columns offered first in the interactive dropdown;
 # any remaining numeric columns are appended after these.
@@ -59,7 +64,21 @@ INTERACTIVE_HTML_NAME = "viraquant_targeted_interactive.html"
 
 
 def eprint(*args):
-    sys.stderr.write(" ".join(str(a) for a in args) + "\n")
+    msg = " ".join(str(a) for a in args)
+    # Route through tqdm.write so messages don't corrupt an active progress bar.
+    if tqdm is not None:
+        tqdm.write(msg, file=sys.stderr)
+    else:
+        sys.stderr.write(msg + "\n")
+
+
+def progress(items, desc):
+    """Iterate samples with a TTY progress bar (or a plain start line otherwise)."""
+    seq = list(items)
+    if tqdm is not None and sys.stderr.isatty():
+        return tqdm(seq, desc=desc, unit="sample", file=sys.stderr, leave=False)
+    eprint("  %s (%d samples) ..." % (desc, len(seq)))
+    return seq
 
 
 def open_text(path):
@@ -322,7 +341,8 @@ def find_virus_file(sample_files, host_mapper, virus_mapper, ref, suffix,
 
 def build_sample_info(samples, file_index):
     rows = []
-    for lib, title in samples.items():
+    for lib in progress(samples, "fastp QC / sample info"):
+        title = samples[lib]
         sample_files = files_for_sample(file_index, lib)
         before = after = passed = None
         fastp_path = None
@@ -351,9 +371,8 @@ def build_sample_info(samples, file_index):
 
 def build_featurecounts_matrix(samples, file_index, host_mapper, count_kind):
     """count_kind is 'count_reads' or 'count_pairs'."""
-    suffix = ".featureCounts." + "%s" % count_kind  # used loosely below
     series_by_sample = OrderedDict()
-    for lib in samples:
+    for lib in progress(samples, "host featureCounts (%s)" % count_kind):
         sample_files = files_for_sample(file_index, lib)
         path = find_host_file(sample_files, host_mapper,
                               "%s.tsv.gz" % count_kind)
@@ -377,7 +396,7 @@ def build_featurecounts_matrix(samples, file_index, host_mapper, count_kind):
 def build_kraken2_matrix(samples, file_index, host_mapper):
     per_sample = OrderedDict()
     identity = OrderedDict()  # (taxid, rank) -> name
-    for lib in samples:
+    for lib in progress(samples, "Kraken2"):
         sample_files = files_for_sample(file_index, lib)
         path = find_kraken_file(sample_files, host_mapper)
         if path is None:
@@ -415,7 +434,7 @@ def build_taxonomy_matrices(samples, file_index, host_mapper, virus_mapper, ref,
     pairs_by_sample = OrderedDict()
     summary_rows = []
     found = False
-    for lib in samples:
+    for lib in progress(samples, "TaxonomyClassifier [%s]" % ref):
         sample_files = files_for_sample(file_index, lib)
         path = find_virus_file(sample_files, host_mapper, virus_mapper, ref,
                                ".unsorted.read_count.txt")
@@ -453,8 +472,9 @@ def build_viraquant_long(samples, file_index, host_mapper, virus_mapper, ref,
     """Concatenate ViraQuant TSVs across samples into a long table."""
     suffix = ".ViraQuant_scan.tsv" if scan else ".ViraQuant.tsv"
     exclude = None if scan else "_scan"
+    desc = "ViraQuant %s [%s]" % ("scan" if scan else "targeted", ref)
     frames = []
-    for lib in samples:
+    for lib in progress(samples, desc):
         sample_files = files_for_sample(file_index, lib)
         path = find_virus_file(sample_files, host_mapper, virus_mapper, ref,
                                suffix, exclude=exclude)
@@ -729,15 +749,18 @@ def main():
 
     samples = read_sample_metadata(o.sra, o.sheet)
     targeted_refs = [r.strip() for r in o.targeted_refs.split(",") if r.strip()]
+    eprint("Indexing files under %s ..." % results_dir)
     file_index = index_result_files(str(results_dir))
     if not file_index:
         sys.exit("No files found under %s" % results_dir)
+    eprint("Indexed %d files." % len(file_index))
 
     host_mapper, virus_mapper = detect_mappers(
         file_index, samples, o.host_mapper, o.virus_mapper)
     eprint("Samples: %d | host_mapper=%s | virus_mapper=%s | scan_ref=%s | targeted=%s"
            % (len(samples), host_mapper, virus_mapper, o.scan_ref,
               ",".join(targeted_refs)))
+    eprint("Collecting results ...")
 
     tax_map = load_taxonomy_map(o.taxonomy_map)
     tables = []
@@ -790,8 +813,10 @@ def main():
         eprint("Warning: only sample_info was assembled; check --results-dir, "
                "mapper names, and reference names.")
 
+    eprint("Writing %d tables to %s ..." % (len(tables), o.out_dir))
     write_outputs(tables, o.out_dir)
     build_interactive_html(targeted_long, o.out_dir)
+    eprint("Done.")
 
 
 if __name__ == "__main__":
