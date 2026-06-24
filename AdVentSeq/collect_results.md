@@ -76,11 +76,12 @@ Each table is written as a `.tsv` and bundled as a sheet in `AdVentSeq_results.x
 ### Interactive table
 
 `viraquant_targeted_interactive.html` is a self-contained page (data embedded, no
-external dependencies). It shows a **virus (rows) × sample (columns)** table whose
-cells update when a measurement is chosen from the drop-down; a second drop-down
-selects the targeted reference when more than one is given. Virus-level ViraQuant
-rows are shown (falling back to contig-level rows for any sample without virus rows).
-`length` is a contig length and is not offered as a measurement.
+external dependencies). It shows a **sample (rows) × virus (columns)** table — each row
+is a sample, with its `library_ID` and `title` in two sticky left columns — whose cells
+update when a measurement is chosen from the drop-down; a second drop-down selects the
+targeted reference when more than one is given. Virus-level ViraQuant values are shown
+(falling back to contig-level for any sample without virus rows). `length` is a contig
+length and is not offered as a measurement.
 
 Controls:
 

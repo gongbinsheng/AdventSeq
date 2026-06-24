@@ -590,13 +590,15 @@ def write_thresholds_yaml(out_dir, thresholds):
     return path
 
 
-def build_interactive_html(targeted_long, out_dir, filtered_reads=None):
+def build_interactive_html(targeted_long, out_dir, filtered_reads=None,
+                           sample_titles=None):
     """Build a self-contained HTML viewer for targeted ViraQuant coverage.
 
     targeted_long: dict ref_name -> long DataFrame (with 'sample_id', 'level',
     'virus', and measurement columns).
     filtered_reads: {sample_id: fastp after-filtering total reads} for CPM-style
     normalization in the viewer.
+    sample_titles: {sample_id: title} shown next to the sample id in the table.
     """
     refs_payload = OrderedDict()
     measurement_cols = []
@@ -665,6 +667,7 @@ def build_interactive_html(targeted_long, out_dir, filtered_reads=None):
         "measurements": measurement_cols,
         "meta": meta,
         "filtered_reads": filtered_reads or {},
+        "sample_titles": sample_titles or {},
         "thresholds_file": THRESHOLDS_YML_NAME,
         "default_measurement": (VIRAQUANT_PRIMARY_FIELDS[0]
                                 if VIRAQUANT_PRIMARY_FIELDS[0] in measurement_cols
@@ -700,10 +703,16 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
            border: 1px solid #9ca3af; border-radius: 4px; background: #f3f4f6; }
   button:hover { background: #e5e7eb; }
   table { border-collapse: collapse; margin-top: .5rem; font-variant-numeric: tabular-nums; }
-  th, td { border: 1px solid #d1d5db; padding: .3rem .55rem; text-align: right; }
-  th.viruscol, td.viruscol { text-align: left; position: sticky; left: 0;
-                             background: #f9fafb; font-weight: 600; }
-  thead th { background: #1e3a8a; color: #fff; position: sticky; top: 0; }
+  th, td { border: 1px solid #d1d5db; padding: .3rem .55rem; text-align: right;
+           white-space: nowrap; }
+  /* Two sticky left columns: sample id, then sample title. */
+  th.scol, td.scol { text-align: left; position: sticky; background: #f9fafb;
+                     font-weight: 600; }
+  th.scol1, td.scol1 { left: 0; }
+  th.scol2, td.scol2 { left: var(--col1w, 7rem); color: #4b5563; font-weight: 400; }
+  thead th { background: #1e3a8a; color: #fff; position: sticky; top: 0; z-index: 2; }
+  thead th.scol { background: #1e3a8a; color: #fff; z-index: 3; }
+  tbody td.scol { z-index: 1; }
   .wrap { overflow: auto; max-height: 75vh; max-width: 100%; }
   .meta { color: #6b7280; font-size: .85rem; }
   td.zero { color: #9ca3af; }
@@ -719,9 +728,9 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
 </head>
 <body>
 <h1>Targeted ViraQuant coverage</h1>
-<p class="meta">Rows are viruses, columns are samples. Cells with a raw value below the
-per-measurement threshold are shown empty. Normalized = value per million filtered
-(fastp after-filtering) reads.</p>
+<p class="meta">Rows are samples (id + title), columns are viruses. Cells with a raw value
+below the per-measurement threshold are shown empty. Normalized = value per million
+filtered (fastp after-filtering) reads.</p>
 <div class="controls">
   <div id="refbox" style="display:none">
     <label for="refsel">Reference</label>
@@ -784,6 +793,21 @@ function fmt(v) {
   return (Math.abs(v) < 1e-3 && v !== 0) ? v.toExponential(3) : v.toFixed(4);
 }
 
+function esc(s) {
+  return String(s).replace(/[&<>"]/g, c =>
+    ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]));
+}
+
+// The second sticky column (title) must offset by the rendered width of the first.
+function fixStickyOffsets() {
+  const c1 = document.querySelector('#tbl tbody td.scol1')
+          || document.querySelector('#tbl thead th.scol1');
+  if (c1) {
+    document.getElementById('tbl').style.setProperty(
+      '--col1w', c1.getBoundingClientRect().width + 'px');
+  }
+}
+
 // normalized value = raw / (filtered_reads[sample] / 1e6); null if reads missing/zero.
 function normalize(raw, sample) {
   const reads = DATA.filtered_reads[sample];
@@ -839,15 +863,16 @@ function tableToTsv(applyThreshold) {
   const samples = block.samples, viruses = block.viruses;
   const lookup = {};
   block.records.forEach(rec => { lookup[rec.virus + '\\u0000' + rec.sample_id] = rec[measure]; });
-  const lines = ['virus\\t' + samples.join('\\t')];
-  viruses.forEach(v => {
-    const cells = samples.map(s => {
+  const lines = ['sample_id\\ttitle\\t' + viruses.join('\\t')];
+  samples.forEach(s => {
+    const title = DATA.sample_titles[s] || '';
+    const cells = viruses.map(v => {
       const raw = lookup[v + '\\u0000' + s];
       if (raw === null || raw === undefined) return '';
       if (applyThreshold && thr !== undefined && thr !== null && raw < thr) return '';
       return String(raw);
     });
-    lines.push(v + '\\t' + cells.join('\\t'));
+    lines.push(s + '\\t' + title + '\\t' + cells.join('\\t'));
   });
   return lines.join('\\n') + '\\n';
 }
@@ -892,20 +917,23 @@ function render() {
 
   const thead = document.querySelector('#tbl thead');
   const tbody = document.querySelector('#tbl tbody');
-  let head = '<tr><th class="viruscol">virus</th>';
-  samples.forEach(s => { head += '<th>' + s + '</th>'; });
+  // Rows are samples (id + title); columns are viruses.
+  let head = '<tr><th class="scol scol1">sample</th><th class="scol scol2">title</th>';
+  viruses.forEach(v => { head += '<th>' + esc(v) + '</th>'; });
   head += '</tr>';
   thead.innerHTML = head;
 
   let body = '';
-  viruses.forEach(v => {
-    body += '<tr><td class="viruscol">' + v + '</td>';
-    samples.forEach(s => {
+  samples.forEach(s => {
+    const title = DATA.sample_titles[s] || '';
+    body += '<tr><td class="scol scol1">' + esc(s) + '</td>'
+          + '<td class="scol scol2">' + esc(title) + '</td>';
+    viruses.forEach(v => {
       const raw = lookup[v + '\\u0000' + s];
       if (isPass) {
         const cls = (raw === 1) ? 'passcell passtrue' : 'passcell';
-        const title = (raw === 1) ? 'true' : (raw === 0 ? 'false' : 'n/a');
-        body += '<td class="' + cls + '" title="' + title + '"></td>';
+        const ttl = (raw === 1) ? 'true' : (raw === 0 ? 'false' : 'n/a');
+        body += '<td class="' + cls + '" title="' + ttl + '"></td>';
         return;
       }
       // Threshold filter is applied to the RAW value.
@@ -927,6 +955,7 @@ function render() {
     body += '</tr>';
   });
   tbody.innerHTML = body;
+  fixStickyOffsets();
 }
 
 refSel.addEventListener('change', render);
@@ -1027,6 +1056,11 @@ def main():
         for lib, reads in zip(sample_info["library_ID"],
                               sample_info["fastp_after_total_reads"])
     }
+    # Per-sample titles shown alongside the sample id in the interactive table.
+    sample_titles = {
+        str(lib): ("" if pd.isna(title) else str(title))
+        for lib, title in zip(sample_info["library_ID"], sample_info["title"])
+    }
 
     # 2. host gene quantification
     for kind, label in (("count_reads", "host_featureCounts_by_reads"),
@@ -1075,7 +1109,8 @@ def main():
 
     eprint("Writing %d tables to %s ..." % (len(tables), o.out_dir))
     write_outputs(tables, o.out_dir)
-    build_interactive_html(targeted_long, o.out_dir, filtered_reads=filtered_reads)
+    build_interactive_html(targeted_long, o.out_dir, filtered_reads=filtered_reads,
+                           sample_titles=sample_titles)
     eprint("Done.")
 
 
