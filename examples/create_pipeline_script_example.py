@@ -116,101 +116,61 @@ def main():
         ### remove host reads then map to RVDB and 7 viruses ###
         ########################################################
         force = False
-        host_genome = "hg38"
-        #host_mappers = ("BWA_MEM","HISAT2","STAR")
-        #host_mappers = ("BWA_MEM","STAR")
-        host_mappers = ("BWA_MEM", )
-        for host_mapper in host_mappers:
-            if len(host_mappers) > 1:
-                ### reset to initial values
-                p.reset_pipeline(ref_genome=host_genome)
+        host_mapper = "BWA_MEM"
+        p.BWA_MEM(force=force)
+        p.SAM2BAM(force=force)
+        p.BAM_stat(force=force)
 
-            ### map to host
-            if host_mapper == "BWA_MEM":
-                p.BWA_MEM(force=force)
-            elif host_mapper == "HISAT2":
-                p.HISAT2(force=force)
-            elif host_mapper == "STAR":
-                p.STAR(force=force)
-            else:
-                sys.exit(f"Wrong host mapper: {host_mapper}")
-            # covert sam to unsorted bam for remove host read pairs
-            p.SAM2BAM(force=force)
-            p.BAM_stat(force=force)
+        # quantification for host
+        p.sort_BAM(by_qname=False, force=force)
+        gtf_file = "/galaxy001/Resources/refGenomes/Homo_sapiens/UCSC/hg38/Annotation/Archives/archive-2023-01-06/hg38.ncbiRefSeq.gtf"
+        p.featureCounts(gene_model="hg38_ncbiRefSeq", feature="exon", countReadPairs=True, gtf=gtf_file, force=force)
+        p.featureCounts(gene_model="hg38_ncbiRefSeq", feature="exon", countReadPairs=False, gtf=gtf_file, force=force)
 
-            # quantification for host
-            p.sort_BAM(by_qname=False, force=force) # sort by coordinate for featureCounts
-            gtf_file = "/galaxy001/Resources/refGenomes/Homo_sapiens/UCSC/hg38/Annotation/Archives/archive-2023-01-06/hg38.ncbiRefSeq.gtf"
-            p.featureCounts(gene_model="hg38_ncbiRefSeq", feature="exon", countReadPairs=True, gtf=gtf_file, force=force)
-            p.featureCounts(gene_model="hg38_ncbiRefSeq", feature="exon", countReadPairs=False, gtf=gtf_file, force=force)
+        # remove host reads using unsorted bam
+        p.remove_read_pairs_mapped_to_host(use_samtools=True, force=force)
 
-            # remove host reads using unsorted bam
-            p.remove_read_pairs_mapped_to_host(use_samtools=True, force=force)
+        # get step id after removing host read-pairs
+        virus_start_step_id = p.get_current_step_id()
 
-            # get step id after removing host read-pairs
-            virus_start_step_id = p.get_current_step_id()
-
-            # Kraken2
-            p.Kraken2(db_name="viral",kraken2_db_root="/galaxy001/Resources/Kraken2DB",force=force)
-
-            # whether the unmapped reads can map to host using STAR
-            #p.STAR(force=force)
-            #p.SAM2BAM(force=force)
-
-            ### map the rest read pairs to viruses
-            #virus_mappers = ("BWA_MEM", "Bowtie2")
-            virus_mappers = ("BWA_MEM",)
-            for virus_mapper in virus_mappers:
-                # map the rest reads to RVDB
-                RVDB_version = "v29" # "v31"
-                p.set_current_step_id(virus_start_step_id)  # reset step id for each aligner
-                if virus_mapper == "Bowtie2":
-                    p.Bowtie2(ref_genome=f"RVDB{RVDB_version}",
-                              bowtie2_index=f"/galaxy001/Resources/RVDB/{RVDB_version}.0/Bowtie2/C-RVDB",
-                              force=force)
-                elif virus_mapper == "BWA_MEM":
-                    p.BWA_MEM(ref_genome=f"RVDB{RVDB_version}",
-                              bwa_index=f"/galaxy001/Resources/RVDB/{RVDB_version}.0/BWAIndex/C-RVDB.fa",
-                              force=force)
-                else:
-                    sys.exit(f"Wrong virus mapper: {virus_mapper}")
-                # # count reads for RVDB
-                p.SAM2BAM(force=force)
-                p.TaxonomyClassifier(contig_info=f"/galaxy001/Resources/RVDB/{RVDB_version}.0/U-RVDB{RVDB_version}.0.sqlite.db",
-                                       taxonomy_map=f"/galaxy001/Resources/RVDB/{RVDB_version}.0/ncbi_taxonomy_map.json.gz",
-                                       virus_group_by="ncbitaxon",
-                                       force=force)
-                p.sort_BAM(by_qname=False, force=force)
-
-                p.ViraQuant(scan_by="mean_depth_ge_1>=1", force=force)
-
-                # map the rest reads to viruses
-                p.set_current_step_id(virus_start_step_id)  # reset step id for each aligner
-                if virus_mapper == "Bowtie2":
-                    p.Bowtie2(ref_genome="7viruses",
-                              bowtie2_index="/galaxy001/bgong/Project_DeLab/Hg38plus7viruses/Bowtie2Index/viruses",
-                              force=force)
-                elif virus_mapper == "BWA_MEM":
-                    p.BWA_MEM(ref_genome="7viruses",
-                              bwa_index="/galaxy001/bgong/Project_DeLab/Hg38plus7viruses/BWAIndex/viruses.fa",
-                              force=force)
-                else:
-                    sys.exit(f"Wrong virus mapper: {virus_mapper}")
-                # count reads for viruses
-                p.SAM2BAM(force=force)
-                p.TaxonomyClassifier(contig_info="/galaxy001/bgong/Project_DeLab/Hg38plus7viruses/WholeGenomeFasta/contig_info.json.gz",
-                                       force=force)
-                p.sort_BAM(by_qname=False, force=force)
-                p.ViraQuant(virus_list="/galaxy001/bgong/Project_DeLab/Virus_genome/7_virus_list.txt", force=force)
+        # Kraken2
+        p.Kraken2(db_name="viral",kraken2_db_root="/galaxy001/Resources/Kraken2DB",force=force)
 
 
-                # call mutation in viruses (especially for Zika)
-                p.sort_BAM(force=force)
-                p.GATK4_Mutect2(ref_genome="7viruses",
-                                genome_fasta="/galaxy001/bgong/Project_DeLab/Hg38plus7viruses/WholeGenomeFasta/viruses.fa",
-                                no_filter=True,
-                                split_multi_allelic=True,
+        ### map the rest read pairs to viruses
+        virus_mapper = "BWA_MEM"
+        # map the rest reads to RVDB
+        RVDB_version = "v29"
+        p.set_current_step_id(virus_start_step_id)  # reset step id for each aligner
+
+        p.BWA_MEM(ref_genome=f"RVDB{RVDB_version}",
+                    bwa_index=f"/galaxy001/Resources/RVDB/{RVDB_version}.0/BWAIndex/C-RVDB.fa",
+                    force=force)
+
+        # # count reads for RVDB
+        p.SAM2BAM(force=force)
+        p.TaxonomyClassifier(contig_info=f"/galaxy001/Resources/RVDB/{RVDB_version}.0/U-RVDB{RVDB_version}.0.sqlite.db",
+                                taxonomy_map=f"/galaxy001/Resources/RVDB/{RVDB_version}.0/ncbi_taxonomy_map.json.gz",
+                                virus_group_by="ncbitaxon",
                                 force=force)
+        p.sort_BAM(by_qname=False, force=force)
+
+        p.ViraQuant(scan_by="mean_depth_ge_1>=1", force=force)
+
+        # map the rest reads to viruses
+        p.set_current_step_id(virus_start_step_id)  # reset step id for each aligner
+
+        p.BWA_MEM(ref_genome="7viruses",
+                    bwa_index="/galaxy001/bgong/Project_DeLab/Hg38plus7viruses/BWAIndex/viruses.fa",
+                    force=force)
+
+        # count reads for viruses
+        p.SAM2BAM(force=force)
+        p.TaxonomyClassifier(contig_info="/galaxy001/bgong/Project_DeLab/Hg38plus7viruses/WholeGenomeFasta/contig_info.json.gz",
+                                force=force)
+        p.sort_BAM(by_qname=False, force=force)
+        p.ViraQuant(virus_list="/galaxy001/bgong/Project_DeLab/Virus_genome/7_virus_list.txt", force=force)
+
 
         # write commands to batch file
         with open(batch_file, 'w') as batch:
