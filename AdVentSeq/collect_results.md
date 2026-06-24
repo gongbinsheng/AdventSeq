@@ -35,11 +35,11 @@ collect-results \
   Required.
 - `-o, --out-dir` — output directory for the tables (default `./collected_tables`).
 - `--scan-ref` — reference name of the full-BAM scan / direct-count step, matched
-  as a substring of the file names (default `RVDBv29`). The RVDB release used at run
-  time determines this (e.g. `RVDBv31`).
-- `--targeted-refs` — comma-separated list of targeted virus-list reference names,
-  e.g. `7viruses,9viruses` (default `7viruses`). One set of targeted tables and one
-  selectable reference in the interactive HTML is produced per name.
+  as a substring of the file names (required), e.g. `RVDBv29` (the RVDB release used
+  at run time determines this, e.g. `RVDBv31`).
+- `--targeted-refs` — comma-separated list of targeted virus-list reference names
+  (required), e.g. `7viruses,9viruses`. One set of targeted tables and one selectable
+  reference in the interactive HTML is produced per name.
 - `--host-mapper` / `--virus-mapper` — aligner names. Auto-detected when exactly one
   is present in the run; required only when the output mixes multiple mappers.
 - `--taxonomy-map` — optional `ncbi_taxonomy_map.json[.gz]`; adds a readable `name`

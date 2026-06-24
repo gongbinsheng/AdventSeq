@@ -696,12 +696,12 @@ def main():
                         help="Pipeline output directory (the '-o' dir of the run).")
     parser.add_argument("-o", "--out-dir", dest="out_dir", default="./collected_tables",
                         help="Directory for the collected tables [default: %(default)s].")
-    parser.add_argument("--scan-ref", dest="scan_ref", default="RVDBv29",
+    parser.add_argument("--scan-ref", dest="scan_ref", required=True,
                         help="Reference name of the full-BAM scan / direct-count "
-                             "step (matched in file names) [default: %(default)s].")
-    parser.add_argument("--targeted-refs", dest="targeted_refs", default="7viruses",
+                             "step (matched in file names), e.g. 'RVDBv29'.")
+    parser.add_argument("--targeted-refs", dest="targeted_refs", required=True,
                         help="Comma-separated targeted virus-list reference names, "
-                             "e.g. '7viruses,9viruses' [default: %(default)s].")
+                             "e.g. '7viruses,9viruses'.")
     parser.add_argument("--host-mapper", dest="host_mapper", default=None,
                         help="Host aligner name (auto-detected if only one present).")
     parser.add_argument("--virus-mapper", dest="virus_mapper", default=None,
