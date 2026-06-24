@@ -634,6 +634,13 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
   .wrap { overflow: auto; max-height: 75vh; max-width: 100%; }
   .meta { color: #6b7280; font-size: .85rem; }
   td.zero { color: #9ca3af; }
+  /* Boolean pass_* measurements are shown as colour blocks (no number). */
+  td.passcell { padding: 0; }
+  td.passtrue { background: #16a34a; }
+  .legend { color: #6b7280; font-size: .85rem; margin: .25rem 0 0; min-height: 1.1rem; }
+  .swatch { display: inline-block; width: .9rem; height: .9rem; vertical-align: middle;
+            border: 1px solid #d1d5db; margin: 0 .25rem 0 .6rem; }
+  .swatch.on { background: #16a34a; }
 </style>
 </head>
 <body>
@@ -650,6 +657,7 @@ targeted reference, if more than one) to update the table.</p>
     <select id="measuresel"></select>
   </div>
 </div>
+<div class="legend" id="legend"></div>
 <div class="wrap"><table id="tbl"><thead></thead><tbody></tbody></table></div>
 <script>
 const DATA = __DATA__;
@@ -680,12 +688,18 @@ function fmt(v) {
 function render() {
   const ref = refSel.value || refNames[0];
   const measure = measureSel.value;
+  // pass_* measurements are boolean (1/0): render as colour blocks, not numbers.
+  const isPass = measure.indexOf('pass_') === 0;
   const block = DATA.refs[ref];
   const samples = block.samples;
   const viruses = block.viruses;
   // index records by virus|sample
   const lookup = {};
   block.records.forEach(rec => { lookup[rec.virus + '\\u0000' + rec.sample_id] = rec[measure]; });
+
+  document.getElementById('legend').innerHTML = isPass
+    ? 'Boolean: <span class="swatch on"></span> true (1) <span class="swatch"></span> false (0)'
+    : '';
 
   const thead = document.querySelector('#tbl thead');
   const tbody = document.querySelector('#tbl tbody');
@@ -699,8 +713,14 @@ function render() {
     body += '<tr><td class="viruscol">' + v + '</td>';
     samples.forEach(s => {
       const val = lookup[v + '\\u0000' + s];
-      const cls = (val === 0 || val === null || val === undefined) ? ' class="zero"' : '';
-      body += '<td' + cls + '>' + fmt(val) + '</td>';
+      if (isPass) {
+        const cls = (val === 1) ? 'passcell passtrue' : 'passcell';
+        const title = (val === 1) ? 'true' : (val === 0 ? 'false' : 'n/a');
+        body += '<td class="' + cls + '" title="' + title + '"></td>';
+      } else {
+        const cls = (val === 0 || val === null || val === undefined) ? ' class="zero"' : '';
+        body += '<td' + cls + '>' + fmt(val) + '</td>';
+      }
     });
     body += '</tr>';
   });
