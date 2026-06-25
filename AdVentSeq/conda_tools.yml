@@ -26,7 +26,6 @@ samtools:   {steps: [samtools, sort_SAM, sort_BAM, SAM2BAM, BAM_stat, unmapped_t
                      __BAM_to_proper_paired_FASTQ_of_a_contig],
              package: samtools,   version_cmd: "samtools --version | head -n1"}
 bedtools:   {steps: [BAM_not_in_BED], package: bedtools, version_cmd: "bedtools --version"}
-SomaticSeq: {steps: [SomaticSeq], package: somaticseq, version_cmd: "somaticseq_parallel.py --version"}
 HTSeq:      {steps: [htseq_count], package: htseq,     version_cmd: "htseq-count --version"}
 Subread:    {steps: [featureCounts], package: subread, version_cmd: "featureCounts -v 2>&1 | grep -i version"}  # stderr
 deepTools:  {steps: [BAM2BigWig], package: deeptools,  version_cmd: "bamCoverage --version"}

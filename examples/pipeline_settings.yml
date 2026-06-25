@@ -17,7 +17,6 @@ envs4steps:
   BAM_not_in_BED: bedtools
   unmapped_to_fastq: samtools
   remove_read_pairs_mapped_to_host: samtools
-  SomaticSeq: SomaticSeq
   htseq_count: HTSeq
   featureCounts: Subread
   depth_by_pos: samtools
