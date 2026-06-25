@@ -2279,6 +2279,40 @@ class Pipeline:
         self.batch[step_id].extend(batch)
 
 
+    def convert_ViraQuant_scan_to_ncbitaxon(self, taxonomy_map, depth_summary="max", force=False):
+        # Group a ViraQuant scan TSV into ncbitaxon-level rows using an
+        # accession-keyed taxonomy map. This is an opt-in step: call it after a
+        # scan-mode ViraQuant run (p.ViraQuant(scan_by=...)). The converter is
+        # RVDB-specific (seq_id accession parsing + taxonomy-map schema); use a
+        # different step for other / custom virus databases.
+        batch = []
+        fn_name = inspect.currentframe().f_code.co_name  # get the name of the function
+        step_id = self.__current_step_id + "|" + fn_name
+        batch.append(f'{"#" * (len(step_id) + 8)}\n')
+        batch.append('### %s ###\n' % step_id)
+        batch.append(f'{"#" * (len(step_id) + 8)}\n')
+        batch.append('conda activate %s\n\n' % self.envs4steps[fn_name])
+        self.required_conda_envs.add(self.envs4steps[fn_name])  # add env name to required env list
+        # commands (input matches the ViraQuant scan step's --out)
+        batch.append('convert-ViraQuant-scan-to-ncbitaxon \\\n')
+        batch.append('    --input "${sorted_BAM%.*.*}.ViraQuant_scan.tsv" \\\n')
+        batch.append(f'    --taxonomy-map "{taxonomy_map}" \\\n')
+        if depth_summary:
+            batch.append(f'    --depth-summary {depth_summary} \\\n')
+        batch.append('    --output "${sorted_BAM%.*.*}.ViraQuant_scan_ncbitaxon.tsv"\n')
+        # check if commands were completed successfully
+        batch.append('if [ $? -ne 0 ]; then echo "Error: %s failed."; exit 1; fi\n\n' % step_id)
+        batch.append('echo -e "%s\\t$(date +\'%%Y-%%m-%%d %%H:%%M:%%S\')" >> "$my_progress"\n\n' % step_id)
+        batch.append('conda deactivate\n\n\n')
+        # test if this step has already been completed
+        # this is an endpoint, no need to set current step id
+        if step_id in self.progress and not force:
+            batch = self.__comment_lines(batch)
+        else:
+            self.is_completed = False
+        self.batch[step_id].extend(batch)
+
+
     def __example(self, force=False):
         batch = []
         fn_name = inspect.currentframe().f_code.co_name  # get the name of the function

@@ -68,7 +68,7 @@ Each table is written as a `.tsv` and bundled as a sheet in `AdVentSeq_results.x
 | `kraken2` | `*.Kraken2_viral.report` | taxon × sample (clade-assigned reads) |
 | `scan_taxonomy_reads` / `scan_taxonomy_pairs` | `*<scan-ref>*.read_count.txt` | virus × sample direct counts |
 | `scan_summary` | same | per-sample mapped / primary / discordant / virus totals |
-| `viraquant_scan_coverage` | `*<scan-ref>*.ViraQuant_scan.tsv` | long/tidy coverage (variable contigs); written **gzip-compressed** (`.tsv.gz`) and **not** included in the Excel workbook (it is large) |
+| `viraquant_scan_coverage` | `*<scan-ref>*.ViraQuant_scan_ncbitaxon.tsv` (preferred), else `*<scan-ref>*.ViraQuant_scan.tsv` | long/tidy coverage (variable contigs / ncbitaxon groups); prefers the ncbitaxon-grouped scan output and falls back to the raw scan TSV per sample; written **gzip-compressed** (`.tsv.gz`) and **not** included in the Excel workbook (it is large) |
 | `targeted_taxonomy_reads_<ref>` / `_pairs_<ref>` | `*<ref>*.read_count.txt` | virus × sample direct counts |
 | `targeted_summary_<ref>` | same | per-sample totals |
 | `viraquant_targeted_coverage_<ref>` | `*<ref>*.ViraQuant.tsv` | long/tidy coverage |

@@ -156,6 +156,10 @@ def main():
         p.sort_BAM(by_qname=False, force=force)
 
         p.ViraQuant(scan_by="mean_depth_ge_1>=1", force=force)
+        # optional: group the RVDB scan results to ncbitaxon level
+        p.convert_ViraQuant_scan_to_ncbitaxon(
+            taxonomy_map=f"/galaxy001/Resources/RVDB/{RVDB_version}.0/ncbi_taxonomy_map.json.gz",
+            force=force)
 
         # map the rest reads to viruses
         p.set_current_step_id(virus_start_step_id)  # reset step id for each aligner

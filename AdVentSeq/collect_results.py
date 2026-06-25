@@ -58,7 +58,7 @@ VIRAQUANT_PRIMARY_FIELDS = [
 ]
 # Non-measurement identity columns in a ViraQuant TSV. "length" is a contig length,
 # not a measurement, so it is excluded from the interactive measurement list too.
-VIRAQUANT_ID_COLS = {"level", "virus", "seq_id", "n_contigs", "best_contig_id", "length"}
+VIRAQUANT_ID_COLS = {"level", "virus", "ncbitaxonname", "seq_id", "n_contigs", "best_contig_id", "length"}
 
 # Default per-measurement thresholds for the interactive table: a cell whose RAW value
 # is below its measurement's threshold is rendered/exported empty. The rule is 1 for
@@ -183,6 +183,7 @@ _VIRUS_OUTPUT_SUFFIXES = (
     ".unsorted.read_count.txt",
     ".ViraQuant.tsv", ".ViraQuant.tsv.gz",
     ".ViraQuant_scan.tsv", ".ViraQuant_scan.tsv.gz",
+    ".ViraQuant_scan_ncbitaxon.tsv", ".ViraQuant_scan_ncbitaxon.tsv.gz",
 )
 
 
@@ -505,15 +506,28 @@ def build_taxonomy_matrices(samples, file_index, host_mapper, virus_mapper, ref,
 
 def build_viraquant_long(samples, file_index, host_mapper, virus_mapper, ref,
                          scan):
-    """Concatenate ViraQuant TSVs across samples into a long table."""
-    suffix = ".ViraQuant_scan.tsv" if scan else ".ViraQuant.tsv"
-    exclude = None if scan else "_scan"
+    """Concatenate ViraQuant TSVs across samples into a long table.
+
+    For scan mode, prefer the ncbitaxon-grouped output
+    (.ViraQuant_scan_ncbitaxon.tsv) and fall back to the raw scan TSV
+    (.ViraQuant_scan.tsv) when a sample has no grouped file.
+    """
+    if scan:
+        suffixes = [".ViraQuant_scan_ncbitaxon.tsv", ".ViraQuant_scan.tsv"]
+        exclude = None
+    else:
+        suffixes = [".ViraQuant.tsv"]
+        exclude = "_scan"
     desc = "ViraQuant %s [%s]" % ("scan" if scan else "targeted", ref)
     frames = []
     for lib in progress(samples, desc):
         sample_files = files_for_sample(file_index, lib)
-        path = find_virus_file(sample_files, host_mapper, virus_mapper, ref,
-                               suffix, exclude=exclude)
+        path = None
+        for suffix in suffixes:
+            path = find_virus_file(sample_files, host_mapper, virus_mapper, ref,
+                                   suffix, exclude=exclude)
+            if path is not None:
+                break
         if path is None:
             eprint("Warning: no %s ViraQuant%s for sample %s"
                    % (ref, "_scan" if scan else "", lib))

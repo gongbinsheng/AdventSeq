@@ -31,5 +31,5 @@ HTSeq:      {steps: [htseq_count], package: htseq,     version_cmd: "htseq-count
 Subread:    {steps: [featureCounts], package: subread, version_cmd: "featureCounts -v 2>&1 | grep -i version"}  # stderr
 deepTools:  {steps: [BAM2BigWig], package: deeptools,  version_cmd: "bamCoverage --version"}
 SPAdes:     {steps: [SPAdes],     package: spades,     version_cmd: "spades.py --version"}
-AdVentSeq:  {steps: [TaxonomyClassifier, ViraQuant], package: null, version_cmd: "pip show AdVentSeq 2>/dev/null | grep -i '^Version'"}   # this package's own env
+AdVentSeq:  {steps: [TaxonomyClassifier, ViraQuant, convert_ViraQuant_scan_to_ncbitaxon], package: null, version_cmd: "pip show AdVentSeq 2>/dev/null | grep -i '^Version'"}   # this package's own env
 gatk:       {steps: [GATK4_Mutect2], package: gatk4,   version_cmd: "gatk --version 2>&1 | head -n1"}

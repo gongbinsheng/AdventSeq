@@ -40,6 +40,26 @@ python convert_ViraQuant_scan_to_ncbitaxon.py \
   [--depth-summary max|median|mean]
 ```
 
+### Running it as a pipeline step
+
+The `Pipeline` class exposes this converter as an **opt-in** step,
+`convert_ViraQuant_scan_to_ncbitaxon`. Call it after a scan-mode
+`ViraQuant` run to group that sample's scan TSV by `ncbitaxon`:
+
+```python
+p.ViraQuant(scan_by="mean_depth_ge_1>=1", force=force)
+p.convert_ViraQuant_scan_to_ncbitaxon(
+    taxonomy_map=".../ncbi_taxonomy_map.json.gz", force=force)
+```
+
+It writes `<sample>.ViraQuant_scan_ncbitaxon.tsv` next to the raw
+`<sample>.ViraQuant_scan.tsv`. The step is **not** baked into `ViraQuant`
+because the accession parsing and taxonomy-map schema are RVDB-specific —
+other / custom virus databases would need a different grouping step.
+`collect_results.py` automatically prefers the grouped
+`*.ViraQuant_scan_ncbitaxon.tsv` for its `viraquant_scan_coverage` table and
+falls back to the raw scan TSV when the grouped file is absent.
+
 ## Arguments / API
 
 - `--input`

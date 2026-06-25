@@ -223,7 +223,10 @@ TaxonomyClassifier --help
   outputs into consolidated tables (+ an interactive coverage table); see
   [AdVentSeq/collect_results.md](AdVentSeq/collect_results.md)
 - `build-ncbi-taxonomy-map` (`AdVentSeq/build_ncbi_taxonomy_map.py`) — see [AdVentSeq/build_ncbi_taxonomy_map.md](AdVentSeq/build_ncbi_taxonomy_map.md)
-- `convert-ViraQuant-scan-to-ncbitaxon` (`AdVentSeq/convert_ViraQuant_scan_to_ncbitaxon.py`) — see
+- `convert-ViraQuant-scan-to-ncbitaxon` (`AdVentSeq/convert_ViraQuant_scan_to_ncbitaxon.py`) — group a
+  ViraQuant scan TSV to `ncbitaxon` level (RVDB-specific). Also available as the opt-in pipeline step
+  `Pipeline.convert_ViraQuant_scan_to_ncbitaxon`, called after a scan-mode `ViraQuant`; `collect-results`
+  then prefers the grouped output. See
   [AdVentSeq/convert_ViraQuant_scan_to_ncbitaxon.md](AdVentSeq/convert_ViraQuant_scan_to_ncbitaxon.md)
 - `convert-rvdb-to-json` (`AdVentSeq/convert_rvdb_to_json.py`)
 - `add-rvdb-columns` (`AdVentSeq/add_rvdb_columns.py`)
