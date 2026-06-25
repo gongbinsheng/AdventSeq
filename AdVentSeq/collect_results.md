@@ -114,10 +114,10 @@ Controls:
 - **Threshold + Apply** — each measurement has **two** thresholds: a **raw** one and a
   **normalized** one. The threshold applies to the value as displayed, and the input
   switches with the Normalized toggle. Any cell whose displayed value is below the
-  active threshold is shown empty. Raw defaults are `1` for integer measurements and
-  `0.1` for floats; normalized thresholds default to `0` (no filtering — tune them).
-  Defaults come from the script's `SUGGESTED_THRESHOLDS` / `SUGGESTED_THRESHOLDS_NORM`
-  dicts (edit them and regenerate to change the built-in defaults). Stepping the value
+  active threshold is shown empty. Both the raw and normalized thresholds default to
+  `0` for every measurement (no filtering — tune them). Defaults come from the script's
+  `SUGGESTED_THRESHOLDS` / `SUGGESTED_THRESHOLDS_NORM` dicts (add entries and regenerate
+  to pre-set non-zero built-in defaults). Stepping the value
   with the up/down spinner arrows (or the mouse wheel / Up–Down keys) updates the table
   **immediately**; a number typed by hand still applies on **Apply** (or Enter). The
   spinner step adapts to the measurement type and view mode: raw uses `1` (integer) /

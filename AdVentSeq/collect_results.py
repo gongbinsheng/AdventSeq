@@ -66,33 +66,16 @@ VIRAQUANT_PRIMARY_FIELDS = [
 # not a measurement, so it is excluded from the interactive measurement list too.
 VIRAQUANT_ID_COLS = {"level", "virus", "ncbitaxonname", "seq_id", "n_contigs", "best_contig_id", "length"}
 
-# Default per-measurement thresholds for the interactive table: a cell whose RAW value
-# is below its measurement's threshold is rendered/exported empty. The rule is 1 for
-# integer-valued measurements and 0.1 for float-valued ones; edit freely. Measurements
-# not listed here fall back to that rule based on their observed value type. pass_*
-# booleans are rendered as colour blocks and are not thresholded.
-SUGGESTED_THRESHOLDS = {
-    "mapped_reads": 1,
-    "depth_at_50pct": 1,
-    "depth_at_60pct": 1,
-    "depth_at_70pct": 1,
-    "depth_at_80pct": 1,
-    "depth_at_90pct": 1,
-    "depth_at_100pct": 1,
-    "median_depth_ge_1": 1,
-    "best_contig_depth_at_90pct": 1,
-    "mean_depth_all": 0.1,
-    "mean_depth_ge_1": 0.1,
-    "frac_ge_1": 0.1,
-    "breadth_cov_gt0": 0.1,
-    "mapped_per_bp": 0.1,
-    "best_contig_mapped_per_bp": 0.1,
-    "best_contig_frac_ge_1": 0.1,
-}
+# Default per-measurement RAW thresholds for the interactive table: a cell whose RAW
+# value is below its measurement's threshold is rendered/exported empty. Every
+# measurement defaults to 0 (no filtering); add entries here to pre-set non-zero
+# thresholds, or just tune them live in the UI. pass_* booleans are rendered as colour
+# blocks and are not thresholded.
+SUGGESTED_THRESHOLDS = {}
 
-# Normalized-mode thresholds (value per million filtered reads). Normalized magnitudes
-# are dataset-dependent, so these default to 0 (no filtering) — tune in the UI or the
-# yml sidecar. Keyed by measurement name, same as SUGGESTED_THRESHOLDS.
+# Normalized-mode thresholds (value per million filtered reads). Like the raw ones,
+# these default to 0 (no filtering) — add entries to pre-set, or tune in the UI. Keyed
+# by measurement name, same as SUGGESTED_THRESHOLDS.
 SUGGESTED_THRESHOLDS_NORM = {}
 
 WORKBOOK_NAME = "AdVentSeq_results.xlsx"
@@ -789,7 +772,7 @@ def build_interactive_html(targeted_long, out_dir, filtered_reads=None,
     for c in measurement_cols:
         is_pass = c.startswith("pass_")
         is_int = meas_is_int.get(c, True)
-        thr_raw = SUGGESTED_THRESHOLDS.get(c, 1 if is_int else 0.1)
+        thr_raw = SUGGESTED_THRESHOLDS.get(c, 0)
         thr_norm = SUGGESTED_THRESHOLDS_NORM.get(c, 0)
         meta[c] = {"is_integer": is_int, "is_pass": is_pass,
                    "threshold_raw": thr_raw, "threshold_norm": thr_norm}
@@ -925,7 +908,7 @@ def build_scan_topn_html(scan_cov, out_dir, top_ns, filtered_reads=None,
     for c in measurements:
         is_int = meas_is_int.get(c, True)
         meta[c] = {"is_integer": is_int, "is_pass": False,
-                   "threshold_raw": SUGGESTED_THRESHOLDS.get(c, 1 if is_int else 0.1),
+                   "threshold_raw": SUGGESTED_THRESHOLDS.get(c, 0),
                    "threshold_norm": SUGGESTED_THRESHOLDS_NORM.get(c, 0)}
 
     payload = {
@@ -986,12 +969,14 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
                      font-weight: 600; }
   th.scol1, td.scol1 { left: 0; }
   th.scol2, td.scol2 { left: var(--col1w, 7rem); color: #4b5563; font-weight: 400; }
-  thead th { background: #1e3a8a; color: #fff; position: sticky; top: 0; z-index: 2; }
+  /* The header row is NOT sticky: it scrolls away with the body so the whole table
+     moves together with the page. (Only the two left columns stay sticky, for
+     horizontal browsing.) */
+  thead th { background: #1e3a8a; color: #fff; }
   thead th.scol { background: #1e3a8a; color: #fff; z-index: 3; }
   tbody td.scol { z-index: 1; }
   /* No inner scroll area: the table grows to its natural size and the browser's
-     own page scrollbars handle overflow. Sticky headers/columns still pin to the
-     viewport during page scroll. */
+     own page scrollbars handle overflow. */
   .wrap { overflow: visible; }
   .meta { color: #6b7280; font-size: .85rem; }
   td.zero { color: #9ca3af; }
