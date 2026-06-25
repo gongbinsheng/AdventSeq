@@ -117,9 +117,11 @@ Controls:
   active threshold is shown empty. Raw defaults are `1` for integer measurements and
   `0.1` for floats; normalized thresholds default to `0` (no filtering — tune them).
   Defaults come from the script's `SUGGESTED_THRESHOLDS` / `SUGGESTED_THRESHOLDS_NORM`
-  dicts (edit them and regenerate to change the built-in defaults). Click **Apply** (or
-  press Enter) to update the table; edits persist per-browser via `localStorage` (works
-  even when the page is opened directly as a `file://` document).
+  dicts (edit them and regenerate to change the built-in defaults). Stepping the value
+  with the up/down spinner arrows (or the mouse wheel / Up–Down keys) updates the table
+  **immediately**; a number typed by hand still applies on **Apply** (or Enter). Edits
+  persist per-browser via `localStorage` (works even when the page is opened directly as
+  a `file://` document).
 - **Download table (.tsv)** — downloads two TSVs for the current measurement and
   reference (to your browser's downloads folder): `viraquant_<ref>_<measurement>_raw.tsv`
   (raw values, all cells) and `…_filtered.tsv` (the displayed values — raw or normalized

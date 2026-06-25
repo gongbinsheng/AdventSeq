@@ -989,7 +989,10 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
   thead th { background: #1e3a8a; color: #fff; position: sticky; top: 0; z-index: 2; }
   thead th.scol { background: #1e3a8a; color: #fff; z-index: 3; }
   tbody td.scol { z-index: 1; }
-  .wrap { overflow: auto; max-height: 75vh; max-width: 100%; }
+  /* No inner scroll area: the table grows to its natural size and the browser's
+     own page scrollbars handle overflow. Sticky headers/columns still pin to the
+     viewport during page scroll. */
+  .wrap { overflow: visible; }
   .meta { color: #6b7280; font-size: .85rem; }
   td.zero { color: #9ca3af; }
   /* Boolean pass_* measurements are shown as colour blocks (no number). */
@@ -1312,7 +1315,22 @@ function applyThreshold() {
   render();
 }
 document.getElementById('applybtn').addEventListener('click', applyThreshold);
-thrInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') applyThreshold(); });
+
+// The threshold input auto-applies when its value is *stepped* (the up/down
+// spinner arrows, the mouse wheel, or the Up/Down keys); a number typed by hand
+// still waits for Apply or Enter. thrTyping flags a keyboard text edit in
+// progress so its 'input' events are ignored; a mousedown (spinner click) clears
+// it so the resulting 'input' auto-applies even right after typing.
+let thrTyping = false;
+thrInput.addEventListener('mousedown', () => { thrTyping = false; });
+thrInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') { applyThreshold(); return; }
+  thrTyping = (e.key !== 'ArrowUp' && e.key !== 'ArrowDown');
+});
+thrInput.addEventListener('input', () => {
+  if (!thrTyping) applyThreshold();  // spinner arrow / wheel / Up-Down key step
+  thrTyping = false;
+});
 document.getElementById('dlbtn').addEventListener('click', downloadTable);
 
 function init() {
