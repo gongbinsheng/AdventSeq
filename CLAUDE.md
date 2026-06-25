@@ -16,3 +16,8 @@ Update the version in **both** places, keeping them identical:
 
 Changes that do not touch the package (e.g. docs-only edits, `examples/`, CI, or
 this file) do not require a version bump.
+
+## Git: never create branches automatically
+
+Do **not** create a new git branch on your own — commit on the current branch
+(including `main`) instead. Only create a branch when I explicitly ask for one.
