@@ -11,11 +11,17 @@ assembles them into a set of tables:
 * ``kraken2``                      - Kraken2 viral report matrix
 * scan TaxonomyClassifier matrices - per-virus direct read/pair counts (RVDB scan)
 * ``viraquant_scan_coverage``      - ViraQuant scan-mode coverage (long/tidy)
+                                     + a self-contained top-N interactive HTML
 * targeted TaxonomyClassifier      - per-virus direct counts for each targeted list
 * targeted ViraQuant coverage      - long table + a self-contained interactive HTML
 
 Static tables are written both as individual ``.tsv`` files and bundled into a
-single multi-sheet ``AdVentSeq_results.xlsx`` workbook.
+single multi-sheet ``AdVentSeq_results.xlsx`` workbook.  A companion
+``AdVentSeq_results_CPM.xlsx`` workbook holds the same sheets normalized to counts
+per million filtered (fastp after-filtering) reads: count matrices are normalized
+column-wise and the long ViraQuant coverage sheets row-wise on their measurement
+columns only (id/info and ``pass_*`` columns pass through). The ``sample_info`` and
+``*_summary`` sheets, which have no per-sample counts, are copied unchanged.
 
 File discovery is robust to two layouts:
   * per-sample folders  -- ``<results_dir>/<library_ID>/<library_ID>.*``
@@ -90,11 +96,22 @@ SUGGESTED_THRESHOLDS = {
 SUGGESTED_THRESHOLDS_NORM = {}
 
 WORKBOOK_NAME = "AdVentSeq_results.xlsx"
+CPM_WORKBOOK_NAME = "AdVentSeq_results_CPM.xlsx"
 INTERACTIVE_HTML_NAME = "viraquant_targeted_interactive.html"
+SCAN_TOPN_HTML_NAME = "viraquant_scan_topn_interactive.html"
 
 # Large/long tables: written gzip-compressed and kept out of the Excel workbook.
 GZIP_TSV_TABLES = {"viraquant_scan_coverage"}
 EXCEL_EXCLUDE_TABLES = {"viraquant_scan_coverage"}
+
+# Tables NOT CPM-normalized in the companion CPM workbook: sample_info and the
+# *_summary sheets, which have no per-sample count columns. Every other sheet is
+# normalized -- count matrices column-wise (normalize_table_cpm) and the long
+# ViraQuant coverage sheets row-wise on their measurement columns only
+# (normalize_viraquant_long_cpm; id/info/pass_* columns pass through). Match is
+# exact name OR name-prefix.
+CPM_NORM_EXCLUDE_EXACT = {"sample_info", "scan_summary"}
+CPM_NORM_EXCLUDE_PREFIXES = ("targeted_summary_",)
 
 
 def eprint(*args):
@@ -605,9 +622,112 @@ def write_outputs(tables, out_dir):
            % (len(tables), out_dir, n_sheets, WORKBOOK_NAME))
 
 
+def is_cpm_normalizable(name):
+    """True for count-matrix tables that should be CPM-normalized (see
+    CPM_NORM_EXCLUDE_*)."""
+    if name in CPM_NORM_EXCLUDE_EXACT:
+        return False
+    return not name.startswith(CPM_NORM_EXCLUDE_PREFIXES)
+
+
+def normalize_table_cpm(df, filtered_reads):
+    """Return a CPM-normalized copy of a sample-matrix table.
+
+    Every column whose header is a sample library_ID (a key in ``filtered_reads``)
+    is divided by that sample's filtered reads per million, i.e.
+    ``count / (filtered_reads[sample] / 1e6)``; all other (identity) columns pass
+    through unchanged. A sample column whose filtered-read count is missing or zero
+    is emptied (NaN), matching how the interactive HTML drops such samples.
+    """
+    out = df.copy()
+    for col in out.columns:
+        key = str(col)
+        if key not in filtered_reads:
+            continue  # identity column (Geneid, virus, name, taxid, ...)
+        reads = filtered_reads[key]
+        if reads:
+            out[col] = out[col] / (reads / 1e6)
+        else:
+            out[col] = float("nan")
+    return out
+
+
+def normalize_viraquant_long_cpm(df, filtered_reads):
+    """Return a CPM-normalized copy of a long ViraQuant coverage table.
+
+    This table is long (one row per sample/entity, identified by ``sample_id``),
+    so normalization is per-row: each numeric measurement column is divided by the
+    row's sample filtered reads per million. The measurement columns are exactly
+    ``viraquant_measurement_cols(.., exclude_pass=True)`` -- everything that is not
+    an id/info column (VIRAQUANT_ID_COLS: ``level``, ``virus``, ``ncbitaxonname``,
+    ``seq_id``, ``n_contigs``, ``best_contig_id``, ``length``), the ``sample_id``
+    key, or a boolean ``pass_*`` flag. Those columns pass through unchanged. Rows
+    whose sample has missing/zero filtered reads get NaN measurements.
+    """
+    out = df.copy()
+    meas_cols = viraquant_measurement_cols(out, exclude_pass=True)
+    if not meas_cols or "sample_id" not in out.columns:
+        return out
+    # Per-row divisor: filtered reads per million for that row's sample; rows whose
+    # sample has missing/zero reads get a NaN divisor (-> NaN measurements).
+    per_million = out["sample_id"].astype(str).map(
+        lambda s: (filtered_reads.get(s) or 0) / 1e6)
+    divisor = per_million.where(per_million > 0)
+    for c in meas_cols:
+        out[c] = out[c] / divisor
+    return out
+
+
+def write_cpm_workbook(tables, out_dir, filtered_reads):
+    """Write a companion workbook of CPM-normalized count tables.
+
+    Mirrors the sheets of WORKBOOK_NAME (tables in EXCEL_EXCLUDE_TABLES are
+    likewise omitted). Count matrices are normalized to counts per million
+    filtered (fastp after-filtering) reads; summary/identity sheets and the
+    ViraQuant coverage sheets are copied through unchanged (see CPM_NORM_EXCLUDE_*).
+    """
+    os.makedirs(out_dir, exist_ok=True)
+    xlsx_path = os.path.join(out_dir, CPM_WORKBOOK_NAME)
+    used = set()
+    n_norm = n_sheets = 0
+    with pd.ExcelWriter(xlsx_path, engine="openpyxl") as writer:
+        for name, df in tables:
+            if name in EXCEL_EXCLUDE_TABLES:
+                continue
+            if name.startswith("viraquant_targeted_coverage_"):
+                # Long (one row per sample) ViraQuant coverage: normalize the
+                # measurement columns row-wise, leaving id/info/pass_* columns.
+                df = normalize_viraquant_long_cpm(df, filtered_reads)
+                n_norm += 1
+            elif is_cpm_normalizable(name):
+                df = normalize_table_cpm(df, filtered_reads)
+                n_norm += 1
+            df.to_excel(writer, sheet_name=_sheet_name(name, used), index=False)
+            n_sheets += 1
+    eprint("Wrote %d sheets to %s (%d CPM-normalized)"
+           % (n_sheets, CPM_WORKBOOK_NAME, n_norm))
+
+
 # ---------------------------------------------------------------------------
 # Interactive HTML
 # ---------------------------------------------------------------------------
+
+def viraquant_measurement_cols(df, exclude_pass=False):
+    """Ordered numeric measurement columns of a ViraQuant frame.
+
+    Drops identity columns (VIRAQUANT_ID_COLS), the injected ``sample_id``, and
+    any non-numeric (string/id) columns. With ``exclude_pass`` the boolean
+    ``pass_*`` columns are dropped too (they cannot be sorted). VIRAQUANT_PRIMARY
+    fields are listed first, remaining numeric columns after.
+    """
+    cols = [c for c in df.columns
+            if c not in VIRAQUANT_ID_COLS and c != "sample_id"
+            and pd.api.types.is_numeric_dtype(df[c])
+            and not (exclude_pass and c.startswith("pass_"))]
+    ordered = [c for c in VIRAQUANT_PRIMARY_FIELDS if c in cols]
+    ordered += [c for c in cols if c not in ordered]
+    return ordered
+
 
 def build_interactive_html(targeted_long, out_dir, filtered_reads=None,
                            sample_titles=None):
@@ -635,11 +755,7 @@ def build_interactive_html(targeted_long, out_dir, filtered_reads=None,
             if missing and "level" in df.columns:
                 extra = df[(df["sample_id"].isin(missing)) & (df["level"] == "contig")]
                 virus_df = pd.concat([virus_df, extra], ignore_index=True)
-        numeric_cols = [c for c in virus_df.columns
-                        if c not in VIRAQUANT_ID_COLS and c != "sample_id"
-                        and pd.api.types.is_numeric_dtype(virus_df[c])]
-        ordered = [c for c in VIRAQUANT_PRIMARY_FIELDS if c in numeric_cols]
-        ordered += [c for c in numeric_cols if c not in ordered]
+        ordered = viraquant_measurement_cols(virus_df)
         for c in ordered:
             if c not in measurement_cols:
                 measurement_cols.append(c)
@@ -688,12 +804,158 @@ def build_interactive_html(targeted_long, out_dir, filtered_reads=None,
                                 if VIRAQUANT_PRIMARY_FIELDS[0] in measurement_cols
                                 else measurement_cols[0]),
     }
-    data_json = json.dumps(payload)
-    html_doc = _HTML_TEMPLATE.replace("__DATA__", data_json)
+    intro = ("Rows are samples (id + title), columns are viruses. Cells below the "
+             "active threshold are shown empty. Each measurement has separate "
+             "<b>raw</b> and <b>normalized</b> thresholds that switch with the "
+             "toggle. Normalized = value per million filtered (fastp "
+             "after-filtering) reads. Threshold edits persist in this browser; "
+             "<b>Download table</b> saves the TSVs to your browser's downloads "
+             "folder.")
     out_path = os.path.join(out_dir, INTERACTIVE_HTML_NAME)
+    _write_interactive_html(payload, "Targeted ViraQuant coverage", intro, out_path)
+    return out_path
+
+
+def _write_interactive_html(payload, h1, intro, out_path):
+    """Fill the shared template with the payload + page heading/intro and write it."""
+    html_doc = (_HTML_TEMPLATE
+                .replace("__H1__", h1)
+                .replace("__INTRO__", intro)
+                .replace("__DATA__", json.dumps(payload)))
     with open(out_path, "w") as fh:
         fh.write(html_doc)
     eprint("Wrote interactive table: %s" % out_path)
+
+
+def build_scan_topn_html(scan_cov, out_dir, top_ns, filtered_reads=None,
+                         sample_titles=None):
+    """Build a top-N scan-coverage viewer with one tab per N.
+
+    scan_cov: the long ``viraquant_scan_coverage`` DataFrame (raw or grouped).
+    top_ns: sorted list of ints, e.g. [10, 20, 50] -> one tab each.
+
+    For grouped (ncbitaxon) data, entities are keyed by the ``virus`` taxon id
+    and labelled by ``ncbitaxonname``; for raw (contig) data they are keyed and
+    labelled by ``seq_id``. For each measurement the per-sample top-N entities
+    are pooled into a union, ordered by how many samples' top-N include each
+    entity (most-shared first).
+    """
+    if scan_cov is None or scan_cov.empty:
+        return None
+    levels = (set(scan_cov["level"].dropna().unique())
+              if "level" in scan_cov.columns else set())
+    if "ncbitaxon" in levels:
+        rows = scan_cov[scan_cov["level"] == "ncbitaxon"]
+        id_col, label_col = "virus", "ncbitaxonname"
+    else:
+        rows = scan_cov[scan_cov["level"] == "contig"] if "contig" in levels else scan_cov
+        id_col, label_col = "seq_id", "seq_id"
+    if rows.empty or id_col not in rows.columns:
+        eprint("Warning: scan coverage has no usable rows; skipping %s."
+               % SCAN_TOPN_HTML_NAME)
+        return None
+    rows = rows.copy()
+    rows[id_col] = rows[id_col].astype(str)
+
+    measurements = viraquant_measurement_cols(rows, exclude_pass=True)
+    if not measurements:
+        eprint("Warning: scan coverage has no numeric measurements; skipping %s."
+               % SCAN_TOPN_HTML_NAME)
+        return None
+    samples = list(dict.fromkeys(rows["sample_id"].tolist()))
+
+    # id -> display label (skip NA/empty; for raw this maps seq_id -> seq_id).
+    names = {}
+    if label_col in rows.columns:
+        for rid, lbl in zip(rows[id_col], rows[label_col]):
+            if rid in names or pd.isna(lbl):
+                continue
+            s = str(lbl).strip()
+            if s and s.upper() != "NA":
+                names[rid] = s
+
+    # Per measurement, per N: union of each sample's top-N ids, ordered by the
+    # number of samples whose top-N include the id (then max value, then id).
+    max_n = max(top_ns)
+    topn_by_n = {n: {} for n in top_ns}
+    for m in measurements:
+        sub = rows[["sample_id", id_col, m]].dropna(subset=[m])
+        if sub.empty:
+            for n in top_ns:
+                topn_by_n[n][m] = []
+            continue
+        srt = sub.sort_values(m, ascending=False, kind="mergesort")
+        per_sample = (srt.groupby("sample_id", sort=False)[id_col]
+                         .apply(lambda x: x.tolist()[:max_n]).to_dict())
+        max_val = sub.groupby(id_col)[m].max().to_dict()
+        for n in top_ns:
+            count = defaultdict(int)
+            for s in samples:
+                for rid in per_sample.get(s, [])[:n]:
+                    count[rid] += 1
+            topn_by_n[n][m] = sorted(
+                count.keys(),
+                key=lambda x: (-count[x], -max_val.get(x, 0.0), x))
+
+    # Union of all entities that appear in any (N, measurement) top-N.
+    union, seen = [], set()
+    for n in top_ns:
+        for m in measurements:
+            for rid in topn_by_n[n][m]:
+                if rid not in seen:
+                    seen.add(rid)
+                    union.append(rid)
+
+    meas_is_int = {c: True for c in measurements}
+    records = []
+    for _, r in rows[rows[id_col].isin(seen)].iterrows():
+        rec = {"sample_id": r["sample_id"], "virus": r[id_col]}
+        for c in measurements:
+            val = r[c]
+            if pd.isna(val):
+                rec[c] = None
+            elif float(val).is_integer():
+                rec[c] = int(val)
+            else:
+                rec[c] = float(val)
+                meas_is_int[c] = False
+        records.append(rec)
+
+    meta = OrderedDict()
+    for c in measurements:
+        is_int = meas_is_int.get(c, True)
+        meta[c] = {"is_integer": is_int, "is_pass": False,
+                   "threshold_raw": SUGGESTED_THRESHOLDS.get(c, 1 if is_int else 0.1),
+                   "threshold_norm": SUGGESTED_THRESHOLDS_NORM.get(c, 0)}
+
+    payload = {
+        "refs": {"scan": {"samples": samples, "viruses": union,
+                          "records": records,
+                          "topn_by_n": {str(n): topn_by_n[n] for n in top_ns}}},
+        "measurements": measurements,
+        "meta": meta,
+        "filtered_reads": filtered_reads or {},
+        "sample_titles": sample_titles or {},
+        "names": names,
+        "vertical_headers": True,
+        "ns": top_ns,
+        "default_measurement": (VIRAQUANT_PRIMARY_FIELDS[0]
+                                if VIRAQUANT_PRIMARY_FIELDS[0] in measurements
+                                else measurements[0]),
+    }
+    entity = "viruses" if id_col == "virus" else "contigs"
+    one = entity[:-1]
+    h1 = "Scan ViraQuant coverage - top %s" % entity
+    intro = ("Rows are samples, columns are the top-N %s pooled across samples "
+             "for the selected measurement (the union of each sample's top N). "
+             "Use the tabs to switch N. Columns are ordered by how many samples' "
+             "top-N include the %s (most-shared first). Cells below the active "
+             "threshold are shown empty; Normalized = value per million filtered "
+             "(fastp after-filtering) reads. Threshold edits persist in this "
+             "browser; <b>Download table</b> saves the TSVs to your browser's "
+             "downloads folder." % (entity, one))
+    out_path = os.path.join(out_dir, SCAN_TOPN_HTML_NAME)
+    _write_interactive_html(payload, h1, intro, out_path)
     return out_path
 
 
@@ -702,7 +964,7 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>AdVentSeq - Targeted ViraQuant coverage</title>
+<title>AdVentSeq - __H1__</title>
 <style>
   body { font-family: -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
          margin: 1.5rem; color: #1f2937; }
@@ -738,15 +1000,29 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
             border: 1px solid #d1d5db; margin: 0 .25rem 0 .6rem; }
   .swatch.on { background: #16a34a; }
   .status { color: #374151; font-size: .85rem; margin: .35rem 0 0; }
+  /* Long entity labels (scan top-N) rendered vertically. The rotated text lives
+     in an inline-block span so the th can horizontally centre it (text-align)
+     and bottom-align it (vertical-align); the row height auto-grows to the
+     longest label (vertical writing-mode maps text length to the span height). */
+  thead th.vhead { vertical-align: bottom; text-align: center; }
+  thead th.vhead > span { display: inline-block; writing-mode: vertical-rl;
+                          transform: rotate(180deg); white-space: nowrap; }
+  /* Click a column header to toggle highlighting that entity's whole column. */
+  thead th[data-v] { cursor: pointer; }
+  thead th.colhl { background: #b45309; }
+  tbody td.colhl { background: #fef3c7; }
+  /* Top-N tab bar. */
+  .tabs { display: flex; gap: .3rem; margin: .25rem 0 .5rem; flex-wrap: wrap; }
+  .tab { font-size: .9rem; padding: .3rem .8rem; cursor: pointer;
+         border: 1px solid #9ca3af; border-bottom: none; border-radius: 4px 4px 0 0;
+         background: #f3f4f6; }
+  .tab:hover { background: #e5e7eb; }
+  .tab.active { background: #1e3a8a; color: #fff; border-color: #1e3a8a; }
 </style>
 </head>
 <body>
-<h1>Targeted ViraQuant coverage</h1>
-<p class="meta">Rows are samples (id + title), columns are viruses. Cells below the active
-threshold are shown empty. Each measurement has separate <b>raw</b> and <b>normalized</b>
-thresholds that switch with the toggle. Normalized = value per million filtered (fastp
-after-filtering) reads. Threshold edits persist in this browser; <b>Download table</b>
-saves the TSVs to your browser's downloads folder.</p>
+<h1>__H1__</h1>
+<p class="meta">__INTRO__</p>
 <div class="controls">
   <div id="refbox" style="display:none">
     <label for="refsel">Reference</label>
@@ -768,6 +1044,7 @@ saves the TSVs to your browser's downloads folder.</p>
     <button id="dlbtn" title="Download raw + threshold-filtered TSV of the current table">Download table (.tsv)</button>
   </div>
 </div>
+<div class="tabs" id="tabs" style="display:none"></div>
 <div class="legend" id="legend"></div>
 <div class="status" id="status"></div>
 <div class="wrap"><table id="tbl"><thead></thead><tbody></tbody></table></div>
@@ -793,6 +1070,28 @@ DATA.measurements.forEach(m => {
   if (m === DATA.default_measurement) o.selected = true;
   measureSel.appendChild(o);
 });
+
+// Top-N tabs (scan viewer only): DATA.ns drives one tab per N; first is active.
+const tabsBox = document.getElementById('tabs');
+let activeN = (DATA.ns && DATA.ns.length) ? DATA.ns[0] : null;
+if (DATA.ns && DATA.ns.length) {
+  DATA.ns.forEach(n => {
+    const b = document.createElement('button');
+    b.className = 'tab' + (n === activeN ? ' active' : '');
+    b.textContent = 'Top ' + n;
+    b.addEventListener('click', () => {
+      activeN = n;
+      [...tabsBox.children].forEach(c => c.classList.remove('active'));
+      b.classList.add('active');
+      render();
+    });
+    tabsBox.appendChild(b);
+  });
+  tabsBox.style.display = 'flex';
+}
+
+// Entity ids whose whole column is highlighted (toggled by clicking the header).
+const highlighted = new Set();
 
 // thresholds: flat map "<measure>.raw" / "<measure>.norm". start from embedded
 // defaults; init() overlays sidecar yml + localStorage.
@@ -854,6 +1153,16 @@ function downloadText(name, text, mime) {
 
 function safeName(s) { return String(s).replace(/[^A-Za-z0-9_.-]+/g, '_'); }
 
+// Columns for the active view: the active tab's per-measurement top-N set (scan
+// viewer) or the fixed virus list (targeted viewer).
+function colsFor(block, measure) {
+  return block.topn_by_n
+    ? (block.topn_by_n[String(activeN)][measure] || [])
+    : block.viruses;
+}
+// Display label for an entity id (scan: ncbitaxonname or seq_id; else the id).
+function labelOf(v) { return (DATA.names || {})[v] || v; }
+
 // Build a sample x virus TSV. filtered=false -> raw values, all cells. filtered=true ->
 // the currently displayed values (raw or normalized) with the active threshold applied.
 function tableToTsv(filtered) {
@@ -863,10 +1172,10 @@ function tableToTsv(filtered) {
   const normalized = normToggle.checked && !isPass;
   const thr = isPass ? 1 : thrOf(measure);
   const block = DATA.refs[ref];
-  const samples = block.samples, viruses = block.viruses;
+  const samples = block.samples, viruses = colsFor(block, measure);
   const lookup = {};
   block.records.forEach(rec => { lookup[rec.virus + '\\u0000' + rec.sample_id] = rec[measure]; });
-  const lines = ['sample_id\\ttitle\\t' + viruses.join('\\t')];
+  const lines = ['sample_id\\ttitle\\t' + viruses.map(labelOf).join('\\t')];
   samples.forEach(s => {
     const title = DATA.sample_titles[s] || '';
     const cells = viruses.map(v => {
@@ -887,9 +1196,10 @@ function tableToTsv(filtered) {
 function downloadTable() {
   const ref = safeName(refSel.value || refNames[0]);
   const measure = safeName(measureSel.value);
-  downloadText('viraquant_' + ref + '_' + measure + '_raw.tsv',
+  const tag = (DATA.ns && activeN !== null) ? ('_top' + activeN) : '';
+  downloadText('viraquant_' + ref + tag + '_' + measure + '_raw.tsv',
                tableToTsv(false), 'text/tab-separated-values');
-  downloadText('viraquant_' + ref + '_' + measure + '_filtered.tsv',
+  downloadText('viraquant_' + ref + tag + '_' + measure + '_filtered.tsv',
                tableToTsv(true), 'text/tab-separated-values');
 }
 
@@ -913,7 +1223,7 @@ function render() {
   const thr = isPass ? null : thrOf(measure);
   const block = DATA.refs[ref];
   const samples = block.samples;
-  const viruses = block.viruses;
+  const viruses = colsFor(block, measure);
   const lookup = {};
   block.records.forEach(rec => { lookup[rec.virus + '\\u0000' + rec.sample_id] = rec[measure]; });
 
@@ -927,9 +1237,18 @@ function render() {
 
   const thead = document.querySelector('#tbl thead');
   const tbody = document.querySelector('#tbl tbody');
-  // Rows are samples (id + title); columns are viruses.
+  // Rows are samples (id + title); columns are entities (header shows the label,
+  // tooltip the id; long labels are rendered vertically for the scan viewer).
+  const vert = !!DATA.vertical_headers;
   let head = '<tr><th class="scol scol1">sample</th><th class="scol scol2">title</th>';
-  viruses.forEach(v => { head += '<th>' + esc(v) + '</th>'; });
+  viruses.forEach(v => {
+    const lab = esc(labelOf(v));
+    const inner = vert ? '<span>' + lab + '</span>' : lab;
+    const cls = ((vert ? 'vhead ' : '') + (highlighted.has(v) ? 'colhl' : '')).trim();
+    const clsAttr = cls ? ' class="' + cls + '"' : '';
+    head += '<th' + clsAttr + ' data-v="' + esc(v) + '" title="' + esc(v) + '">'
+          + inner + '</th>';
+  });
   head += '</tr>';
   thead.innerHTML = head;
 
@@ -939,25 +1258,26 @@ function render() {
     body += '<tr><td class="scol scol1">' + esc(s) + '</td>'
           + '<td class="scol scol2">' + esc(title) + '</td>';
     viruses.forEach(v => {
+      const hl = highlighted.has(v) ? ' colhl' : '';
       const raw = lookup[v + '\\u0000' + s];
       if (isPass) {
         const cls = (raw === 1) ? 'passcell passtrue' : 'passcell';
         const ttl = (raw === 1) ? 'true' : (raw === 0 ? 'false' : 'n/a');
-        body += '<td class="' + cls + '" title="' + ttl + '"></td>';
+        body += '<td class="' + cls + hl + '" title="' + ttl + '"></td>';
         return;
       }
       // Compute the displayed value, then filter on it with the active threshold.
       let shown = raw;
       if (normalized) shown = (raw === null || raw === undefined) ? null : normalize(raw, s);
       if (shown === null || shown === undefined) {  // missing, or no read count
-        body += '<td class="zero"></td>';
+        body += '<td class="zero' + hl + '"></td>';
         return;
       }
       if (thr !== undefined && thr !== null && shown < thr) {
-        body += '<td class="zero"></td>';
+        body += '<td class="zero' + hl + '"></td>';
         return;
       }
-      body += '<td>' + fmt(shown) + '</td>';
+      body += '<td' + (hl ? ' class="colhl"' : '') + '>' + fmt(shown) + '</td>';
     });
     body += '</tr>';
   });
@@ -969,6 +1289,16 @@ refSel.addEventListener('change', render);
 measureSel.addEventListener('change', () => { syncControls(); render(); });
 // Toggling raw/normalized swaps in that mode's threshold for the current measurement.
 normToggle.addEventListener('change', () => { syncControls(); render(); });
+
+// Click a column header to toggle highlighting that entity's whole column (the
+// thead element persists across re-renders, so one delegated listener suffices).
+document.querySelector('#tbl thead').addEventListener('click', (e) => {
+  const th = e.target.closest('th[data-v]');
+  if (!th) return;
+  const v = th.getAttribute('data-v');
+  if (highlighted.has(v)) highlighted.delete(v); else highlighted.add(v);
+  render();
+});
 
 // Apply: set the current measurement+mode threshold from the input, persist to
 // localStorage, and re-render.
@@ -1025,11 +1355,22 @@ def main():
     parser.add_argument("--taxonomy-map", dest="taxonomy_map", default=None,
                         help="Optional ncbi_taxonomy_map.json[.gz] to add readable "
                              "names to the scan-ref taxonomy tables.")
+    parser.add_argument("--top-n", dest="top_n", default="10",
+                        help="Comma-separated top-N values (one tab each) for the "
+                             "scan top-N interactive table, e.g. '10,20,50' "
+                             "[default: %(default)s].")
     o = parser.parse_args()
 
     results_dir = Path(o.results_dir).expanduser().resolve()
     if not results_dir.is_dir():
         sys.exit("Results directory does not exist: %s" % results_dir)
+
+    try:
+        top_ns = sorted({int(x) for x in o.top_n.split(",") if x.strip()})
+    except ValueError:
+        sys.exit("Invalid --top-n %r: expected comma-separated integers." % o.top_n)
+    if not top_ns or top_ns[0] < 1:
+        sys.exit("Invalid --top-n %r: values must be positive integers." % o.top_n)
 
     samples = read_sample_metadata(o.sra, o.sheet)
     targeted_refs = [r.strip() for r in o.targeted_refs.split(",") if r.strip()]
@@ -1111,8 +1452,11 @@ def main():
 
     eprint("Writing %d tables to %s ..." % (len(tables), o.out_dir))
     write_outputs(tables, o.out_dir)
+    write_cpm_workbook(tables, o.out_dir, filtered_reads)
     build_interactive_html(targeted_long, o.out_dir, filtered_reads=filtered_reads,
                            sample_titles=sample_titles)
+    build_scan_topn_html(scan_cov, o.out_dir, top_ns, filtered_reads=filtered_reads,
+                         sample_titles=sample_titles)
     eprint("Done.")
 
 

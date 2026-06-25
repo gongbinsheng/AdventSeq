@@ -44,6 +44,8 @@ collect-results \
   is present in the run; required only when the output mixes multiple mappers.
 - `--taxonomy-map` — optional `ncbi_taxonomy_map.json[.gz]`; adds a readable `name`
   column to the scan-ref taxonomy tables (which are keyed by NCBI taxon id).
+- `--top-n` — comma-separated top-N value(s) for the scan top-N interactive table,
+  e.g. `10,20,50` (default `10`). One tab is produced per value.
 
 ## File discovery
 
@@ -73,6 +75,27 @@ Each table is written as a `.tsv` and bundled as a sheet in `AdVentSeq_results.x
 | `targeted_summary_<ref>` | same | per-sample totals |
 | `viraquant_targeted_coverage_<ref>` | `*<ref>*.ViraQuant.tsv` | long/tidy coverage |
 
+### CPM-normalized workbook
+
+A companion `AdVentSeq_results_CPM.xlsx` is written alongside `AdVentSeq_results.xlsx`
+with the **same sheets** normalized to **counts per million filtered reads** (CPM):
+each value is divided by its sample's fastp after-filtering total reads, per million
+(`value / (filtered_reads / 1e6)`). A sample whose filtered-read count is missing or
+zero is left blank in the normalized sheet.
+
+- **Count matrices** (`host_featureCounts_*`, `kraken2`, `scan_taxonomy_*`,
+  `targeted_taxonomy_*`) are normalized **column-wise** — each per-sample column is
+  divided by that sample's reads-per-million.
+- **`viraquant_targeted_coverage_<ref>`** is a long table (one row per sample), so it
+  is normalized **row-wise**, and **only on its measurement columns**. The id/info
+  columns — `level`, `virus`, `ncbitaxonname`, `seq_id`, `n_contigs`,
+  `best_contig_id`, `length` — and the boolean `pass_*` flags are **left unchanged**.
+
+The `sample_info`, `scan_summary`, and `targeted_summary_<ref>` sheets have no
+per-sample count columns and are **copied through unchanged**.
+`viraquant_scan_coverage` is excluded from both workbooks (it is large; written as
+`.tsv.gz`).
+
 ### Interactive table
 
 `viraquant_targeted_interactive.html` is a self-contained page (data embedded, no
@@ -101,6 +124,26 @@ Controls:
   reference (to your browser's downloads folder): `viraquant_<ref>_<measurement>_raw.tsv`
   (raw values, all cells) and `…_filtered.tsv` (the displayed values — raw or normalized
   — with the active threshold applied; cells below it left empty, i.e. blank/NA in Excel).
+- **Highlight a column** — click a virus/entity column header to highlight that whole
+  column; click it again to clear. Highlights follow the entity across measurement and
+  top-N tab changes.
+
+### Scan top-N interactive table
+
+`viraquant_scan_topn_interactive.html` is the same self-contained viewer applied to
+the scan coverage (raw or ncbitaxon-grouped). Because a scan covers far more entities
+than the targeted lists, it shows only the **top N** per measurement: for the selected
+measurement each sample's top-N entities are pooled into a **union** (so a tab may show
+more than N columns), and the columns are ordered by how many samples' top-N include
+each entity (most-shared first). The **`--top-n` tabs** (e.g. Top 10 / Top 20 / Top 50)
+switch N; the measurement drop-down, Normalized toggle, thresholds, and Download work as
+above. Because normalization is a per-sample constant scaling, the top-N membership is
+the same in raw and normalized views.
+
+Column headers are rendered **vertically** (labels are long) and show the
+`ncbitaxonname` for grouped data or the `seq_id` (contig id) for raw scan data; the
+NCBI taxon id (grouped) is available as a tooltip. `pass_*` booleans, `n_contigs`, and
+`length` are excluded from the measurement list (they cannot be ranked).
 
 ## Related files
 
