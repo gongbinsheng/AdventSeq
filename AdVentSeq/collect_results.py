@@ -1213,8 +1213,13 @@ function syncControls() {
   thrInput.disabled = isPass;
   normToggle.disabled = isPass;
   thrInput.value = isPass ? '' : thrOf(measure);
-  // Up/down step: 1 for integer measurements, 0.1 for float measurements.
-  thrInput.step = metaOf(measure).is_integer ? '1' : '0.1';
+  // Up/down step depends on the measurement type AND the view mode. Raw: 1 for
+  // integer measurements, 0.1 for floats. Normalized values are per-million and
+  // much smaller, so use finer steps there: 0.1 for integer, 0.05 for floats.
+  const isInt = metaOf(measure).is_integer;
+  thrInput.step = (curMode() === 'norm')
+    ? (isInt ? '0.1' : '0.05')
+    : (isInt ? '1' : '0.1');
 }
 
 function render() {
