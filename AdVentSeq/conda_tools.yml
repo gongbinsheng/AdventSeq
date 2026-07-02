@@ -13,22 +13,22 @@
 #                the env via `conda run -n <env> bash -lc "<version_cmd>"`.
 # Edit this file when bioconda / conda-forge package names or version flags change,
 # or to reassign which env a step runs in (e.g. to use a different env name).
-MultiQC:    {steps: [MultiQC],    package: multiqc,    version_cmd: "multiqc --version"}
-fastp:      {steps: [fastp],      package: fastp,      version_cmd: "fastp --version"}
-BWA:        {steps: [BWA_MEM],    package: bwa,        version_cmd: "bwa 2>&1 | grep -i '^Version'"}   # no flag, stderr
-Bowtie2:    {steps: [Bowtie2],    package: bowtie2,    version_cmd: "bowtie2 --version | head -n1"}
-Kraken2:    {steps: [Kraken2],    package: kraken2,    version_cmd: "kraken2 --version | head -n1"}
+MultiQC:    {steps: [MultiQC],    package: multiqc,    version_cmd: "multiqc --version | sed -E 's/^.*[Vv]ersion[[:space:]]*//'"}
+fastp:      {steps: [fastp],      package: fastp,      version_cmd: "fastp --version 2>&1 | sed -E 's/^fastp[[:space:]]*//'"}   # stderr
+BWA:        {steps: [BWA_MEM],    package: bwa,        version_cmd: "bwa 2>&1 | grep -i '^Version' | sed -E 's/^[Vv]ersion:[[:space:]]*//'"}   # no flag, stderr
+Bowtie2:    {steps: [Bowtie2],    package: bowtie2,    version_cmd: "bowtie2 --version | head -n1 | sed -E 's/^.*[Vv]ersion[[:space:]]*//'"}
+Kraken2:    {steps: [Kraken2],    package: kraken2,    version_cmd: "kraken2 --version | head -n1 | sed -E 's/^.*[Vv]ersion[[:space:]]*//'"}
 minimap2:   {steps: [minimap2],   package: minimap2,   version_cmd: "minimap2 --version"}
-HISAT2:     {steps: [HISAT2],     package: hisat2,     version_cmd: "hisat2 --version | head -n1"}
+HISAT2:     {steps: [HISAT2],     package: hisat2,     version_cmd: "hisat2 --version | head -n1 | sed -E 's/^.*[Vv]ersion[[:space:]]*//'"}
 STAR:       {steps: [STAR],       package: star,       version_cmd: "STAR --version"}
 samtools:   {steps: [samtools, sort_SAM, sort_BAM, SAM2BAM, BAM_stat, unmapped_to_fastq,
                      remove_read_pairs_mapped_to_host, depth_by_pos,
                      __BAM_to_proper_paired_FASTQ_of_a_contig],
-             package: samtools,   version_cmd: "samtools --version | head -n1"}
-bedtools:   {steps: [BAM_not_in_BED], package: bedtools, version_cmd: "bedtools --version"}
+             package: samtools,   version_cmd: "samtools --version | head -n1 | sed -E 's/^samtools[[:space:]]*//'"}
+bedtools:   {steps: [BAM_not_in_BED], package: bedtools, version_cmd: "bedtools --version | sed -E 's/^bedtools v//'"}
 HTSeq:      {steps: [htseq_count], package: htseq,     version_cmd: "htseq-count --version"}
-Subread:    {steps: [featureCounts], package: subread, version_cmd: "featureCounts -v 2>&1 | grep -i version"}  # stderr
+Subread:    {steps: [featureCounts], package: subread, version_cmd: "featureCounts -v 2>&1"}  # stderr; output has no "version" text, keep tool name since it differs from the Subread package version
 deepTools:  {steps: [BAM2BigWig], package: deeptools,  version_cmd: "bamCoverage --version"}
-SPAdes:     {steps: [SPAdes],     package: spades,     version_cmd: "spades.py --version"}
-AdVentSeq:  {steps: [TaxonomyClassifier, ViraQuant, convert_ViraQuant_scan_to_ncbitaxon], package: null, version_cmd: "pip show AdVentSeq 2>/dev/null | grep -i '^Version'"}   # this package's own env
-gatk:       {steps: [GATK4_Mutect2], package: gatk4,   version_cmd: "gatk --version 2>&1 | head -n1"}
+SPAdes:     {steps: [SPAdes],     package: spades,     version_cmd: "spades.py --version 2>&1 | sed -E 's/^SPAdes genome assembler v//'"}
+AdVentSeq:  {steps: [TaxonomyClassifier, ViraQuant, convert_ViraQuant_scan_to_ncbitaxon], package: null, version_cmd: "pip show AdVentSeq 2>/dev/null | grep -i '^Version' | sed -E 's/^[Vv]ersion:[[:space:]]*//'"}   # this package's own env
+gatk:       {steps: [GATK4_Mutect2], package: gatk4,   version_cmd: "gatk --version 2>&1 | sed -n '2p' | sed -E 's/^.*GATK.[[:space:]]*v//'"}   # 2nd line; "." matches the closing paren after GATK

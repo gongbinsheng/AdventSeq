@@ -1,6 +1,6 @@
 [project]
 name = "adventseq"
-version = "2.14.3"
+version = "2.14.4"
 description = "AdVentSeq: an HPC pipeline builder and viral quantification toolkit for sequencing data"
 readme = "README.md"
 requires-python = ">=3.12"
