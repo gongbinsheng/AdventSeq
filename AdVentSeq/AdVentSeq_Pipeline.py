@@ -385,7 +385,7 @@ class Pipeline:
         """Record each env's main-tool version into a commented block in the config yml.
 
         on_existing controls what happens when a versions block already exists:
-        "update" (default on empty prompt), "skip", or "quit". When None, the
+        "update", "skip" (default on empty prompt), or "quit". When None, the
         user is prompted interactively.
         """
         timestamp = cls._timestamp()
@@ -445,17 +445,44 @@ class Pipeline:
                     "(expected 'update', 'skip', or 'quit').\n"
                 )
             return action
+        key_to_action = {"u": "update", "s": "skip", "q": "quit"}
+        prompt = "A tool-versions block already exists. Update/[S]kip/Quit: "
+        key = cls._read_single_key(prompt)
+        return key_to_action.get(key, "skip")
+
+    @staticmethod
+    def _read_single_key(prompt):
+        """Print prompt and read one keypress without waiting for Enter.
+
+        Falls back to line-buffered input() when stdin isn't an interactive
+        TTY (e.g. piped input, non-interactive test runs).
+        """
+        sys.stdout.write(prompt)
+        sys.stdout.flush()
         try:
-            answer = input(
-                "A tool-versions block already exists. [update]/skip/quit: "
-            ).strip().lower()
-        except EOFError:
-            answer = ""
-        if answer == "":
-            return "update"
-        if answer in ("update", "skip", "quit"):
-            return answer
-        return "update"
+            if not sys.stdin.isatty():
+                raise OSError("stdin is not a tty")
+            if sys.platform == "win32":
+                import msvcrt
+                ch = msvcrt.getch().decode("utf-8", "ignore").lower()
+            else:
+                import termios
+                import tty
+                fd = sys.stdin.fileno()
+                old_settings = termios.tcgetattr(fd)
+                try:
+                    tty.setraw(fd)
+                    ch = sys.stdin.read(1).lower()
+                finally:
+                    termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+            sys.stdout.write(ch + "\n")
+            sys.stdout.flush()
+        except Exception:
+            try:
+                ch = input().strip().lower()[:1]
+            except EOFError:
+                ch = ""
+        return ch
 
 
     @classmethod
