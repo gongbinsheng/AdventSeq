@@ -388,15 +388,6 @@ class Pipeline:
         "update", "skip" (default on empty prompt), or "quit". When None, the
         user is prompted interactively.
         """
-        timestamp = cls._timestamp()
-        block_lines = [
-            TOOL_VERSIONS_BEGIN + "\n",
-            f"# generated: {timestamp}\n",
-        ]
-        for env in sorted(set(cls.envs4steps.values())):
-            block_lines.append(f"# {env}: {cls._tool_version(env)}\n")
-        block_lines.append(TOOL_VERSIONS_END + "\n")
-
         config_path = Path(cls.config_path)
         try:
             with open(config_path, "r", encoding="utf-8") as handle:
@@ -418,6 +409,20 @@ class Pipeline:
                 return
             if action == "quit":
                 sys.exit("Quit: existing tool-versions block left unchanged.\n")
+
+        # Only run the (potentially slow) version-lookup commands once we know
+        # we're actually going to write a block: no existing block, or the
+        # user chose to update.
+        timestamp = cls._timestamp()
+        block_lines = [
+            TOOL_VERSIONS_BEGIN + "\n",
+            f"# generated: {timestamp}\n",
+        ]
+        for env in sorted(set(cls.envs4steps.values())):
+            block_lines.append(f"# {env}: {cls._tool_version(env)}\n")
+        block_lines.append(TOOL_VERSIONS_END + "\n")
+
+        if begin_idx is not None and end_idx is not None:
             # update: replace the existing block in place.
             new_lines = file_lines[:begin_idx] + block_lines + file_lines[end_idx + 1:]
         else:
