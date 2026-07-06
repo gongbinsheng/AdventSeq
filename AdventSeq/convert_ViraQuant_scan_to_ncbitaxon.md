@@ -26,7 +26,7 @@ flowchart TD
 
 ## Requirements
 
-- The `AdVentSeq` conda environment (see the main [README.md](../README.md) for setup). Activate it first: `conda activate AdVentSeq`.
+- The `AdventSeq` conda environment (see the main [README.md](../README.md) for setup). Activate it first: `conda activate AdventSeq`.
 - This is a standalone script; run it directly with `python convert_ViraQuant_scan_to_ncbitaxon.py ...`.
 - The converter operates on existing scan TSVs only; it does not reopen BAMs or recompute exact pooled depth distributions.
 

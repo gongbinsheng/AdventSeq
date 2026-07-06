@@ -23,8 +23,8 @@ envs4steps:
   BAM2BigWig: deepTools
   __BAM_to_proper_paired_FASTQ_of_a_contig: samtools
   SPAdes: SPAdes
-  TaxonomyClassifier: AdVentSeq
-  ViraQuant: AdVentSeq
+  TaxonomyClassifier: AdventSeq
+  ViraQuant: AdventSeq
   GATK4_Mutect2: gatk
 
 # Optional reference paths loaded during Pipeline object initialization.

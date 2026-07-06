@@ -1,7 +1,7 @@
 #!/usr/bin/env python
-"""Collect AdVentSeq per-sample pipeline outputs into consolidated tables.
+"""Collect AdventSeq per-sample pipeline outputs into consolidated tables.
 
-The AdVentSeq pipeline writes each sample's results into a per-sample working
+The AdventSeq pipeline writes each sample's results into a per-sample working
 directory (``Pipeline.WD/$SID``).  This tool walks the pipeline output directory,
 locates the relevant files for every sample listed in the SRA metadata sheet, and
 assembles them into a set of tables:
@@ -16,8 +16,8 @@ assembles them into a set of tables:
 * targeted ViraQuant coverage      - long table + a self-contained interactive HTML
 
 Static tables are written both as individual ``.tsv`` files and bundled into a
-single multi-sheet ``AdVentSeq_results.xlsx`` workbook.  A companion
-``AdVentSeq_results_CPM.xlsx`` workbook holds the same sheets normalized to counts
+single multi-sheet ``AdventSeq_results.xlsx`` workbook.  A companion
+``AdventSeq_results_CPM.xlsx`` workbook holds the same sheets normalized to counts
 per million filtered (fastp after-filtering) reads: count matrices are normalized
 column-wise and the long ViraQuant coverage sheets row-wise on their measurement
 columns only (id/info and ``pass_*`` columns pass through). The ``sample_info`` and
@@ -78,8 +78,8 @@ SUGGESTED_THRESHOLDS = {}
 # by measurement name, same as SUGGESTED_THRESHOLDS.
 SUGGESTED_THRESHOLDS_NORM = {}
 
-WORKBOOK_NAME = "AdVentSeq_results.xlsx"
-CPM_WORKBOOK_NAME = "AdVentSeq_results_CPM.xlsx"
+WORKBOOK_NAME = "AdventSeq_results.xlsx"
+CPM_WORKBOOK_NAME = "AdventSeq_results_CPM.xlsx"
 INTERACTIVE_HTML_NAME = "viraquant_targeted_interactive.html"
 SCAN_TOPN_HTML_NAME = "viraquant_scan_topn_interactive.html"
 
@@ -947,7 +947,7 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>AdVentSeq - __H1__</title>
+<title>AdventSeq - __H1__</title>
 <style>
   body { font-family: -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
          margin: 1.5rem; color: #1f2937; }
@@ -1341,7 +1341,7 @@ init();
 # ---------------------------------------------------------------------------
 
 def main():
-    parser = ArgumentParser(description="Collect AdVentSeq per-sample results into tables.")
+    parser = ArgumentParser(description="Collect AdventSeq per-sample results into tables.")
     parser.add_argument("-s", "--sra", dest="sra", required=True,
                         help="SRA metadata workbook (.xlsx).")
     parser.add_argument("--sheet", dest="sheet", default="SRA_data",

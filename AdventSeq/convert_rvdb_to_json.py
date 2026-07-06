@@ -8,7 +8,7 @@ import sqlite3
 from pathlib import Path
 
 from tqdm import tqdm
-from AdVentSeq.contig_info_utils import normalize_record
+from AdventSeq.contig_info_utils import normalize_record
 
 
 def parse_args() -> argparse.Namespace:

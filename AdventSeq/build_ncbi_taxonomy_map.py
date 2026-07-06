@@ -13,7 +13,7 @@ from urllib.parse import urlencode
 from urllib.request import urlopen
 import xml.etree.ElementTree as ET
 
-from AdVentSeq.contig_info_utils import load_contig_info, load_json_mapping
+from AdventSeq.contig_info_utils import load_contig_info, load_json_mapping
 
 try:
     from tqdm import tqdm
@@ -23,7 +23,7 @@ except ModuleNotFoundError:  # pragma: no cover - fallback for minimal environme
 
 
 EUTILS_BASE = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
-TOOL_NAME = "AdVentSeq"
+TOOL_NAME = "AdventSeq"
 
 
 def parse_args(argv=None) -> argparse.Namespace:

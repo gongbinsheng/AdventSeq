@@ -1,4 +1,4 @@
-# Per-conda-env definition for AdVentSeq: which pipeline steps run in the env,
+# Per-conda-env definition for AdventSeq: which pipeline steps run in the env,
 # its install package, and the command that prints the main tool's version.
 # Keys are the conda env names. This file is the single source of truth for the
 # step -> env mapping.
@@ -8,7 +8,7 @@
 #                (step -> env). A step name must not appear under two envs.
 #   package      conda package name to install (channels: conda-forge, bioconda).
 #                Use null when the env is not installable from a channel
-#                (e.g. AdVentSeq, which is this package's own env).
+#                (e.g. AdventSeq, which is this package's own env).
 #   version_cmd  shell command that prints the main tool's version. Run inside
 #                the env via `conda run -n <env> bash -lc "<version_cmd>"`.
 # Edit this file when bioconda / conda-forge package names or version flags change,
@@ -30,5 +30,5 @@ HTSeq:      {steps: [htseq_count], package: htseq,     version_cmd: "htseq-count
 Subread:    {steps: [featureCounts], package: subread, version_cmd: "featureCounts -v 2>&1"}  # stderr; output has no "version" text, keep tool name since it differs from the Subread package version
 deepTools:  {steps: [BAM2BigWig], package: deeptools,  version_cmd: "bamCoverage --version"}
 SPAdes:     {steps: [SPAdes],     package: spades,     version_cmd: "spades.py --version 2>&1 | sed -E 's/^SPAdes genome assembler v//'"}
-AdVentSeq:  {steps: [TaxonomyClassifier, ViraQuant, convert_ViraQuant_scan_to_ncbitaxon], package: null, version_cmd: "pip show AdVentSeq 2>/dev/null | grep -i '^Version' | sed -E 's/^[Vv]ersion:[[:space:]]*//'"}   # this package's own env
+AdventSeq:  {steps: [TaxonomyClassifier, ViraQuant, convert_ViraQuant_scan_to_ncbitaxon], package: null, version_cmd: "pip show AdventSeq 2>/dev/null | grep -i '^Version' | sed -E 's/^[Vv]ersion:[[:space:]]*//'"}   # this package's own env
 gatk:       {steps: [GATK4_Mutect2], package: gatk4,   version_cmd: "gatk --version 2>&1 | sed -n '2p' | sed -E 's/^.*GATK.[[:space:]]*v//'"}   # 2nd line; "." matches the closing paren after GATK

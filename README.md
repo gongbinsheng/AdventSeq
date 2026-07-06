@@ -1,6 +1,6 @@
-# AdVentSeq
+# AdventSeq
 
-AdVentSeq is an HPC pipeline builder and viral-quantification toolkit for sequencing data. The
+AdventSeq is an HPC pipeline builder and viral-quantification toolkit for sequencing data. The
 `Pipeline` class is provided as an importable Python package, while the analysis tools
 (`ViraQuant.py`, `TaxonomyClassifier.py`, and the helpers) are standalone scripts.
 
@@ -37,7 +37,7 @@ flowchart TD
         FASTQ[("FASTQ reads")]
         SETTINGS[("pipeline_settings.yml<br/>(reference paths)")]
         CONDATOOLS[("conda_tools.yml<br/>(step &rarr; env, tools)")]
-        PIPELINE["AdVentSeq_Pipeline.py<br/>(Pipeline class)"]
+        PIPELINE["AdventSeq_Pipeline.py<br/>(Pipeline class)"]
         JOBS[("generated .sh job scripts")]
         SORTBAM[("sorted BAM (+ .bai)")]
         NAMEBAM[("name-sorted BAM")]
@@ -93,16 +93,16 @@ flowchart TD
 
 ## Installation
 
-AdVentSeq targets Python 3.12. Create a dedicated conda environment and install the package in
+AdventSeq targets Python 3.12. Create a dedicated conda environment and install the package in
 editable mode:
 
 ```bash
-conda create -n AdVentSeq python=3.12 -y
-conda activate AdVentSeq
+conda create -n AdventSeq python=3.12 -y
+conda activate AdventSeq
 pip install -e .
 ```
 
-This installs the importable `AdVentSeq` package (the `Pipeline` class) along with its runtime
+This installs the importable `AdventSeq` package (the `Pipeline` class) along with its runtime
 dependencies (`pysam`, `tqdm`, `pyyaml`). It also registers the analysis tools as console commands
 (`ViraQuant`, `TaxonomyClassifier`, etc.) on your `PATH`, so they can be run from any directory
 while the environment is active.
@@ -112,8 +112,8 @@ while the environment is active.
 Import the package:
 
 ```python
-import AdVentSeq as AVS
-from AdVentSeq import Pipeline, list_files_with_extensions, is_valid_DNA_sequence
+import AdventSeq as AVS
+from AdventSeq import Pipeline, list_files_with_extensions, is_valid_DNA_sequence
 
 # Configure class-level settings, then build a per-sample job script.
 Pipeline.WD = "/path/to/work"
@@ -139,13 +139,13 @@ p.set_env_variables()
 
 By default the `Pipeline` loads the bundled `pipeline_settings.yml.example` config. To use your own
 environment/reference settings, call `Pipeline.load_pipeline_config("/path/to/your_settings.yml")`
-before creating `Pipeline` objects. See [AdVentSeq/AdVentSeq_Pipeline.md](AdVentSeq/AdVentSeq_Pipeline.md)
+before creating `Pipeline` objects. See [AdventSeq/AdventSeq_Pipeline.md](AdventSeq/AdventSeq_Pipeline.md)
 for the full API.
 
 ## Conda environments
 
 Each pipeline step runs its tool inside a dedicated conda environment. The step &rarr; env mapping
-is defined in `AdVentSeq/conda_tools.yml`: each env entry lists the steps that run in it via its
+is defined in `AdventSeq/conda_tools.yml`: each env entry lists the steps that run in it via its
 `steps:` field (e.g. env `BWA` has `steps: [BWA_MEM]`), and `Pipeline.envs4steps` is derived by
 inverting those lists. The generated job scripts `source` a conda init script and `conda activate`
 the relevant env per step.
@@ -178,18 +178,18 @@ When `Pipeline.load_pipeline_config(...)` loads a config it also, by default:
    the config yml (the block is fully commented, so it does not affect parsing):
 
    ```yaml
-   # >>> AdVentSeq tool versions >>>
+   # >>> AdventSeq tool versions >>>
    # generated: 20260622_110729[CDT]
    # BWA: Version: 0.7.17-r1188
    # samtools: samtools 1.17
-   # <<< AdVentSeq tool versions <<<
+   # <<< AdventSeq tool versions <<<
    ```
 
    If a versions block already exists you are prompted to **update** (default), **skip**, or
    **quit**. Pass `on_existing_versions="update" | "skip" | "quit"` to skip the prompt.
 
 The step list, install package name, and version command for each env live in the bundled
-`AdVentSeq/conda_tools.yml` data file (env names often differ from package names, e.g. `BWA` &rarr;
+`AdventSeq/conda_tools.yml` data file (env names often differ from package names, e.g. `BWA` &rarr;
 `bwa`, `gatk` &rarr; `gatk4`). Edit that file if bioconda/conda-forge package names or version flags
 change, or to reassign which env a step runs in.
 
@@ -203,7 +203,7 @@ The analysis tools are installed as console commands and can be run from any dir
 environment is active:
 
 ```bash
-conda activate AdVentSeq
+conda activate AdventSeq
 ViraQuant --help
 TaxonomyClassifier --help
 ```
@@ -212,21 +212,21 @@ TaxonomyClassifier --help
 
 ### Package (importable)
 
-- `AdVentSeq/AdVentSeq_Pipeline.py` (the `Pipeline` class) — see
-  [AdVentSeq/AdVentSeq_Pipeline.md](AdVentSeq/AdVentSeq_Pipeline.md)
+- `AdventSeq/AdventSeq_Pipeline.py` (the `Pipeline` class) — see
+  [AdventSeq/AdventSeq_Pipeline.md](AdventSeq/AdventSeq_Pipeline.md)
 
 ### Analysis tools (console commands)
 
-- `ViraQuant` (`AdVentSeq/ViraQuant.py`) — see [AdVentSeq/ViraQuant.md](AdVentSeq/ViraQuant.md)
-- `TaxonomyClassifier` (`AdVentSeq/TaxonomyClassifier.py`) — see [AdVentSeq/TaxonomyClassifier.md](AdVentSeq/TaxonomyClassifier.md)
-- `collect-results` (`AdVentSeq/collect_results.py`) — collect per-sample pipeline
+- `ViraQuant` (`AdventSeq/ViraQuant.py`) — see [AdventSeq/ViraQuant.md](AdventSeq/ViraQuant.md)
+- `TaxonomyClassifier` (`AdventSeq/TaxonomyClassifier.py`) — see [AdventSeq/TaxonomyClassifier.md](AdventSeq/TaxonomyClassifier.md)
+- `collect-results` (`AdventSeq/collect_results.py`) — collect per-sample pipeline
   outputs into consolidated tables (+ an interactive coverage table); see
-  [AdVentSeq/collect_results.md](AdVentSeq/collect_results.md)
-- `build-ncbi-taxonomy-map` (`AdVentSeq/build_ncbi_taxonomy_map.py`) — see [AdVentSeq/build_ncbi_taxonomy_map.md](AdVentSeq/build_ncbi_taxonomy_map.md)
-- `convert-ViraQuant-scan-to-ncbitaxon` (`AdVentSeq/convert_ViraQuant_scan_to_ncbitaxon.py`) — group a
+  [AdventSeq/collect_results.md](AdventSeq/collect_results.md)
+- `build-ncbi-taxonomy-map` (`AdventSeq/build_ncbi_taxonomy_map.py`) — see [AdventSeq/build_ncbi_taxonomy_map.md](AdventSeq/build_ncbi_taxonomy_map.md)
+- `convert-ViraQuant-scan-to-ncbitaxon` (`AdventSeq/convert_ViraQuant_scan_to_ncbitaxon.py`) — group a
   ViraQuant scan TSV to `ncbitaxon` level (RVDB-specific). Also available as the opt-in pipeline step
   `Pipeline.convert_ViraQuant_scan_to_ncbitaxon`, called after a scan-mode `ViraQuant`; `collect-results`
   then prefers the grouped output. See
-  [AdVentSeq/convert_ViraQuant_scan_to_ncbitaxon.md](AdVentSeq/convert_ViraQuant_scan_to_ncbitaxon.md)
-- `convert-rvdb-to-json` (`AdVentSeq/convert_rvdb_to_json.py`)
-- `add-rvdb-columns` (`AdVentSeq/add_rvdb_columns.py`)
+  [AdventSeq/convert_ViraQuant_scan_to_ncbitaxon.md](AdventSeq/convert_ViraQuant_scan_to_ncbitaxon.md)
+- `convert-rvdb-to-json` (`AdventSeq/convert_rvdb_to_json.py`)
+- `add-rvdb-columns` (`AdventSeq/add_rvdb_columns.py`)

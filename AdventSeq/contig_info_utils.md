@@ -2,7 +2,7 @@
 
 ## Overview
 
-Shared helpers for loading contig metadata and JSON mappings used across the AdVentSeq tools.
+Shared helpers for loading contig metadata and JSON mappings used across the AdventSeq tools.
 
 `contig_info_utils.py` is an importable utility module (not a standalone CLI). It centralizes how contig metadata is read from the supported input formats — JSON, gzipped JSON, and RVDB-style SQLite (plain or gzipped) — and how accession-keyed JSON mappings such as the NCBI taxonomy map are loaded. Tools like `build_ncbi_taxonomy_map.py` and `convert_rvdb_to_json.py` import these functions so that format handling and row normalization stay consistent in one place.
 
@@ -24,13 +24,13 @@ flowchart TD
 
 ## Requirements
 
-- The `AdVentSeq` conda environment (see the main [README.md](../README.md) for setup). Activate it first: `conda activate AdVentSeq`.
+- The `AdventSeq` conda environment (see the main [README.md](../README.md) for setup). Activate it first: `conda activate AdventSeq`.
 - Imported as a module; it is not run directly. Standard library only (`gzip`, `json`, `sqlite3`, `shutil`, `tempfile`, `pathlib`).
 
 ## Usage
 
 ```python
-from AdVentSeq.contig_info_utils import load_contig_info, load_json_mapping
+from AdventSeq.contig_info_utils import load_contig_info, load_json_mapping
 
 contig_info = load_contig_info("v31.0/contig_info.json.gz")
 taxonomy_map = load_json_mapping("v31.0/ncbi_taxonomy_map.json.gz")

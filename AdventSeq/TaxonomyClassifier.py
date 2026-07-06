@@ -5,7 +5,7 @@ import gzip
 from collections import defaultdict
 from dataclasses import dataclass
 from argparse import ArgumentParser
-from AdVentSeq.contig_info_utils import load_contig_info, load_json_mapping
+from AdventSeq.contig_info_utils import load_contig_info, load_json_mapping
 
 
 @dataclass(frozen=True)

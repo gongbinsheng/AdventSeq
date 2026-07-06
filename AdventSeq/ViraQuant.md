@@ -35,7 +35,7 @@ flowchart TD
 
 ## Requirements
 
-- The `AdVentSeq` conda environment (Python 3.12+ with `pysam`); see the main [README.md](../README.md) for setup. Activate it first: `conda activate AdVentSeq`.
+- The `AdventSeq` conda environment (Python 3.12+ with `pysam`); see the main [README.md](../README.md) for setup. Activate it first: `conda activate AdventSeq`.
 - Input BAM must be:
   - coordinate-sorted
   - indexed (`.bai` present)

@@ -1,4 +1,4 @@
-# AdVentSeq — project rules
+# AdventSeq — project rules
 
 ## Versioning: bump the version before every commit
 
@@ -12,7 +12,7 @@ commit that changes the package code, bump the version **in the same commit**:
 Update the version in **both** places, keeping them identical:
 
 - `pyproject.toml` → `version = "..."`
-- `AdVentSeq/__init__.py` → `__version__ = "..."`
+- `AdventSeq/__init__.py` → `__version__ = "..."`
 
 Changes that do not touch the package (e.g. docs-only edits, `examples/`, CI, or
 this file) do not require a version bump.

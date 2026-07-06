@@ -3,7 +3,7 @@ import sys
 import shutil
 import pandas as pd
 from argparse import ArgumentParser
-from AdVentSeq import Pipeline, list_files_with_extensions
+from AdventSeq import Pipeline, list_files_with_extensions
 from HPC import HPC
 from pathlib import Path
 

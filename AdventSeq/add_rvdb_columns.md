@@ -21,7 +21,7 @@ flowchart TD
 
 ## Requirements
 
-- The `AdVentSeq` conda environment (see the main [README.md](../README.md) for setup). Activate it first: `conda activate AdVentSeq`.
+- The `AdventSeq` conda environment (see the main [README.md](../README.md) for setup). Activate it first: `conda activate AdventSeq`.
 - This is a standalone script; run it directly with `python add_rvdb_columns.py ...`.
 
 ## Usage

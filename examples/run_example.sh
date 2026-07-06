@@ -1,4 +1,4 @@
-conda activate AdVentSeq
+conda activate AdventSeq
 
 FASTQ_DATA_DIR="<folder of FASTQ data>"
 RESULT_DIR="Results"

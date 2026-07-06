@@ -1,7 +1,7 @@
 [project]
 name = "adventseq"
-version = "2.14.5"
-description = "AdVentSeq: an HPC pipeline builder and viral quantification toolkit for sequencing data"
+version = "3.0.0"
+description = "AdventSeq: an HPC pipeline builder and viral quantification toolkit for sequencing data"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
@@ -13,17 +13,17 @@ dependencies = [
 ]
 
 [project.scripts]
-ViraQuant = "AdVentSeq.ViraQuant:main"
-TaxonomyClassifier = "AdVentSeq.TaxonomyClassifier:main"
-collect-results = "AdVentSeq.collect_results:main"
-build-ncbi-taxonomy-map = "AdVentSeq.build_ncbi_taxonomy_map:main"
-convert-ViraQuant-scan-to-ncbitaxon = "AdVentSeq.convert_ViraQuant_scan_to_ncbitaxon:main"
-convert-rvdb-to-json = "AdVentSeq.convert_rvdb_to_json:main"
-add-rvdb-columns = "AdVentSeq.add_rvdb_columns:main"
+ViraQuant = "AdventSeq.ViraQuant:main"
+TaxonomyClassifier = "AdventSeq.TaxonomyClassifier:main"
+collect-results = "AdventSeq.collect_results:main"
+build-ncbi-taxonomy-map = "AdventSeq.build_ncbi_taxonomy_map:main"
+convert-ViraQuant-scan-to-ncbitaxon = "AdventSeq.convert_ViraQuant_scan_to_ncbitaxon:main"
+convert-rvdb-to-json = "AdventSeq.convert_rvdb_to_json:main"
+add-rvdb-columns = "AdventSeq.add_rvdb_columns:main"
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["AdVentSeq"]
+packages = ["AdventSeq"]

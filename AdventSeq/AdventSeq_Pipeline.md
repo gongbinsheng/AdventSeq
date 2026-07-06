@@ -1,10 +1,10 @@
-# AdVentSeq_Pipeline.py
+# AdventSeq_Pipeline.py
 
 ## Overview
 
-`AdVentSeq_Pipeline.py` provides a Python API for building sequencing-analysis batch scripts. Instead of executing tools directly, it accumulates shell commands in an ordered `Pipeline.batch` structure, tracks completed steps through a per-sample progress file, and helps manage reference bundles, Conda environments, and HPC scheduler headers.
+`AdventSeq_Pipeline.py` provides a Python API for building sequencing-analysis batch scripts. Instead of executing tools directly, it accumulates shell commands in an ordered `Pipeline.batch` structure, tracks completed steps through a per-sample progress file, and helps manage reference bundles, Conda environments, and HPC scheduler headers.
 
-This module is best understood as a script generator for reproducible bioinformatics workflows. You create a `Pipeline` object for one sample, call the step methods you want in order, and then serialize the accumulated shell snippets into a `.sh` job script for your cluster or local execution environment. It is the importable core of the package — `from AdVentSeq import Pipeline`.
+This module is best understood as a script generator for reproducible bioinformatics workflows. You create a `Pipeline` object for one sample, call the step methods you want in order, and then serialize the accumulated shell snippets into a `.sh` job script for your cluster or local execution environment. It is the importable core of the package — `from AdventSeq import Pipeline`.
 
 At a high level, the module handles four jobs:
 
@@ -43,11 +43,11 @@ flowchart TD
 
 ## Requirements
 
-- The `AdVentSeq` conda environment with the package installed (see the main [README.md](../README.md) for setup).
+- The `AdventSeq` conda environment with the package installed (see the main [README.md](../README.md) for setup).
 - Import the public API from the installed package:
 
 ```python
-from AdVentSeq import Pipeline, list_files_with_extensions, is_valid_DNA_sequence
+from AdventSeq import Pipeline, list_files_with_extensions, is_valid_DNA_sequence
 ```
 
 ## Usage
@@ -92,7 +92,7 @@ When you change analysis branches, `reset_pipeline()` can be used to create a ne
 - `is_valid_DNA_sequence(s)`
   Validates that a string contains only `A`, `T`, `C`, and `G`.
 
-(Other module-level helpers such as `parse_gtf` and `OrderedDefaultDict` are internal and not exported from the `AdVentSeq` package.)
+(Other module-level helpers such as `parse_gtf` and `OrderedDefaultDict` are internal and not exported from the `AdventSeq` package.)
 
 `Pipeline.batch` uses a custom internal `OrderedDefaultDict` so that sections are emitted in insertion order while still behaving like a `defaultdict(list)`. This matters because the generated job script is assembled from ordered blocks such as `HPC`, `ENV`, per-step sections like `sampleA|merge_lanes`, and downstream sections such as alignment, counting, and variant calling.
 
@@ -154,7 +154,7 @@ If input file types are mixed or do not match `filetype`, the constructor exits.
 ### Configuration loading
 
 - `Pipeline.load_pipeline_config(config_path=None)`
-  Class method that loads the user YAML config (for `reference_paths`), updates the class-level config cache, and loads `AdVentSeq/conda_tools.yml` to refresh both `envs4steps` (derived by inverting each env's `steps:` list) and `conda_tools`.
+  Class method that loads the user YAML config (for `reference_paths`), updates the class-level config cache, and loads `AdventSeq/conda_tools.yml` to refresh both `envs4steps` (derived by inverting each env's `steps:` list) and `conda_tools`.
 
 - `Pipeline.set_conda_tools_config(path)`
   Class method that overrides the bundled `conda_tools.yml` with a custom file. It fully replaces the bundled file (no merge) and immediately reloads it, refreshing both `Pipeline.conda_tools` and `Pipeline.envs4steps`. The same YAML/shape/duplicate-step validation applies. The override persists for the session, so a later `load_pipeline_config()` keeps using the custom file.
@@ -259,7 +259,7 @@ reference_paths:
 ```
 
 The step &rarr; conda-env mapping is **not** in this file. It lives in the bundled
-`AdVentSeq/conda_tools.yml`, where each env entry declares the steps that run in it:
+`AdventSeq/conda_tools.yml`, where each env entry declares the steps that run in it:
 
 ```yaml
 BWA:      {steps: [BWA_MEM], package: bwa, version_cmd: "bwa 2>&1 | grep -i '^Version'"}
@@ -321,7 +321,7 @@ The following example shows the intended usage pattern for generating a shell sc
 
 ```python
 from pathlib import Path
-from AdVentSeq import Pipeline
+from AdventSeq import Pipeline
 
 Pipeline.load_pipeline_config("/path/to/pipeline_settings.yml")
 
@@ -380,6 +380,6 @@ If you prefer Slurm, replace `set_qsub_parameters()` with `set_slurm_parameters(
 
 ## Related files
 
-- [AdVentSeq_Pipeline.py](AdVentSeq_Pipeline.py)
+- [AdventSeq_Pipeline.py](AdventSeq_Pipeline.py)
 - [pipeline_settings.yml.example](pipeline_settings.yml.example) — bundled default config template.
 - [README.md](../README.md) — installation and basic usage.

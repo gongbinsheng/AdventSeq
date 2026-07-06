@@ -27,7 +27,7 @@ flowchart TD
 
 ## Requirements
 
-- The `AdVentSeq` conda environment (see the main [README.md](../README.md) for setup). Activate it first: `conda activate AdVentSeq`.
+- The `AdventSeq` conda environment (see the main [README.md](../README.md) for setup). Activate it first: `conda activate AdventSeq`.
 - Network access to reach NCBI E-utilities.
 - This is a standalone script; run it directly with `python build_ncbi_taxonomy_map.py ...`.
 

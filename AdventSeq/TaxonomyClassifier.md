@@ -53,7 +53,7 @@ flowchart TD
 
 ## Requirements
 
-- The `AdVentSeq` conda environment (see the main [README.md](../README.md) for setup). Activate it first: `conda activate AdVentSeq`.
+- The `AdventSeq` conda environment (see the main [README.md](../README.md) for setup). Activate it first: `conda activate AdventSeq`.
 - Input BAM must be sorted by query name.
 - This is a standalone script; run it directly with `python TaxonomyClassifier.py ...`.
 

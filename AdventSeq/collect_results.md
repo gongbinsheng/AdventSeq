@@ -2,16 +2,16 @@
 
 ## Overview
 
-Collects the per-sample outputs of an AdVentSeq pipeline run into consolidated
+Collects the per-sample outputs of an AdventSeq pipeline run into consolidated
 tables. The pipeline writes each sample's files into a per-sample working directory
 (`Pipeline.WD/$SID`); this tool walks that output tree, matches the files belonging
 to every sample listed in the SRA metadata sheet, and assembles them into tables.
 
 Installed as the console command `collect-results` (see the main
-[README.md](../README.md) for setup). Run it with the `AdVentSeq` environment active.
+[README.md](../README.md) for setup). Run it with the `AdventSeq` environment active.
 
 ```bash
-conda activate AdVentSeq
+conda activate AdventSeq
 collect-results --help
 ```
 
@@ -60,7 +60,7 @@ parsed from the embedded `ref_genome` tokens in the file names.
 
 ## Outputs
 
-Each table is written as a `.tsv` and bundled as a sheet in `AdVentSeq_results.xlsx`:
+Each table is written as a `.tsv` and bundled as a sheet in `AdventSeq_results.xlsx`:
 
 | Table | Source | Shape |
 |---|---|---|
@@ -77,7 +77,7 @@ Each table is written as a `.tsv` and bundled as a sheet in `AdVentSeq_results.x
 
 ### CPM-normalized workbook
 
-A companion `AdVentSeq_results_CPM.xlsx` is written alongside `AdVentSeq_results.xlsx`
+A companion `AdventSeq_results_CPM.xlsx` is written alongside `AdventSeq_results.xlsx`
 with the **same sheets** normalized to **counts per million filtered reads** (CPM):
 each value is divided by its sample's fastp after-filtering total reads, per million
 (`value / (filtered_reads / 1e6)`). A sample whose filtered-read count is missing or
@@ -151,5 +151,5 @@ NCBI taxon id (grouped) is available as a tooltip. `pass_*` booleans, `n_contigs
 
 ## Related files
 
-- `AdVentSeq_Pipeline.py` — builds the per-sample pipeline whose outputs are collected.
+- `AdventSeq_Pipeline.py` — builds the per-sample pipeline whose outputs are collected.
 - `ViraQuant.py`, `TaxonomyClassifier.py` — produce the coverage and read-count inputs.

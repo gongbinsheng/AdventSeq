@@ -1,4 +1,4 @@
-conda activate AdVentSeq
+conda activate AdventSeq
 
 # Collect the per-sample pipeline outputs (produced by run_example.sh) into tables.
 # RESULT_DIR must be the same directory passed to the pipeline via -o.

@@ -1,8 +1,8 @@
-"""Build and submit per-sample AdVentSeq pipeline scripts for a whole study.
+"""Build and submit per-sample AdventSeq pipeline scripts for a whole study.
 
 This is an *example* driver script. It reads a study metadata sheet (Excel),
 and for every sample it generates one slurm batch script that runs the
-AdVentSeq viral-discovery pipeline. It then writes a `submit.sh` that submits
+AdventSeq viral-discovery pipeline. It then writes a `submit.sh` that submits
 all of those scripts to an HPC cluster with `sbatch`.
 
 Pipeline stages built for each sample (single aligner: BWA-MEM):
@@ -43,7 +43,7 @@ import pandas as pd
 from argparse import ArgumentParser
 from pathlib import Path
 
-from AdVentSeq import Pipeline, list_files_with_extensions
+from AdventSeq import Pipeline, list_files_with_extensions
 
 
 # ============================================================================
@@ -88,7 +88,7 @@ NEXTERA_FASTA = None  # e.g. "/path/to/Nextera_adapters.fasta"
 
 
 def main():
-    parser = ArgumentParser(description="Generate and submit AdVentSeq pipeline scripts for a study.")
+    parser = ArgumentParser(description="Generate and submit AdventSeq pipeline scripts for a study.")
     parser.add_argument('-s', '--sra', type=str, action='store', dest='sra_metadata', default=None, required=True,
                         help='Study metadata Excel sheet (SRA-style layout, sheet name "SRA_data").')
     parser.add_argument('-d', '--data-folder', type=str, action='store', dest='data_folder', default=None, required=True,
