@@ -44,6 +44,19 @@ collect-results \
   is present in the run; required only when the output mixes multiple mappers.
 - `--taxonomy-map` — optional `ncbi_taxonomy_map.json[.gz]`; adds a readable `name`
   column to the scan-ref taxonomy tables (which are keyed by NCBI taxon id).
+- `--host-genes` — optional host-gene panel restricting the host featureCounts matrices.
+  The mode is chosen by file extension:
+  - `.txt` (or any non-YAML extension) — one `Geneid` per line; blank lines and
+    `#`-comment lines are ignored. The `host_featureCounts_*` matrices are subset to
+    those genes, in file order.
+  - `.yaml` / `.yml` — a mapping of family name → list of member genes. In addition to
+    the subset matrices (union of all members, in YAML order), two family-summed
+    matrices `host_gene_family_by_reads` / `_by_pairs` are written, one row per family
+    (in YAML order) whose per-sample value is the **sum** of its present members' counts.
+
+  Matching is exact and case-sensitive on `Geneid`. Requested genes not found in the
+  data produce a single warning listing them (processing continues); a gene family with
+  no present members is skipped with a warning.
 - `--top-n` — comma-separated top-N value(s) for the scan top-N interactive table,
   e.g. `10,20,50` (default `10`). One tab is produced per value.
 
@@ -65,8 +78,9 @@ Each table is written as a `.tsv` and bundled as a sheet in `AdventSeq_results.x
 | Table | Source | Shape |
 |---|---|---|
 | `sample_info` | `*.fastp.json` | sample ID, title, total reads before/after filtering, passed-filter reads, after/before fraction |
-| `host_featureCounts_by_reads` | `*.featureCounts.*.count_reads.tsv.gz` | gene × sample counts |
-| `host_featureCounts_by_pairs` | `*.featureCounts.*.count_pairs.tsv.gz` | gene × sample counts |
+| `host_featureCounts_by_reads` | `*.featureCounts.*.count_reads.tsv.gz` | gene × sample counts (subset to `--host-genes` when given, in panel order) |
+| `host_featureCounts_by_pairs` | `*.featureCounts.*.count_pairs.tsv.gz` | gene × sample counts (subset to `--host-genes` when given, in panel order) |
+| `host_gene_family_by_reads` / `_by_pairs` | same, summed by family | family × sample counts (sum of present members); **only** when `--host-genes` is a `.yaml`/`.yml` family file |
 | `kraken2` | `*.Kraken2_viral.report` | taxon × sample (clade-assigned reads) |
 | `scan_taxonomy_reads` / `scan_taxonomy_pairs` | `*<scan-ref>*.read_count.txt` | virus × sample direct counts |
 | `scan_summary` | same | per-sample mapped / primary / discordant / virus totals |
@@ -83,9 +97,9 @@ each value is divided by its sample's fastp after-filtering total reads, per mil
 (`value / (filtered_reads / 1e6)`). A sample whose filtered-read count is missing or
 zero is left blank in the normalized sheet.
 
-- **Count matrices** (`host_featureCounts_*`, `kraken2`, `scan_taxonomy_*`,
-  `targeted_taxonomy_*`) are normalized **column-wise** — each per-sample column is
-  divided by that sample's reads-per-million.
+- **Count matrices** (`host_featureCounts_*`, `host_gene_family_*`, `kraken2`,
+  `scan_taxonomy_*`, `targeted_taxonomy_*`) are normalized **column-wise** — each
+  per-sample column is divided by that sample's reads-per-million.
 - **`viraquant_targeted_coverage_<ref>`** is a long table (one row per sample), so it
   is normalized **row-wise**, and **only on its measurement columns**. The id/info
   columns — `level`, `virus`, `ncbitaxonname`, `seq_id`, `n_contigs`,

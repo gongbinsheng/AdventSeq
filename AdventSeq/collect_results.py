@@ -44,6 +44,7 @@ from argparse import ArgumentParser
 from collections import OrderedDict, defaultdict
 from pathlib import Path
 
+import yaml
 import pandas as pd
 
 try:
@@ -430,6 +431,47 @@ def build_featurecounts_matrix(samples, file_index, host_mapper, count_kind):
     return matrix.reset_index()
 
 
+def subset_featurecounts_matrix(matrix, gene_subset):
+    """Restrict a featureCounts matrix to gene_subset, in that order.
+
+    matrix has a 'Geneid' column (the reset-index output of
+    build_featurecounts_matrix). Rows are reordered to follow gene_subset and any
+    gene not present in the data is dropped. Returns (subset_matrix, missing) where
+    missing lists the requested genes absent from the matrix (in request order).
+    """
+    present = set(matrix["Geneid"])
+    ordered = [g for g in gene_subset if g in present]
+    missing = [g for g in gene_subset if g not in present]
+    sub = matrix.set_index("Geneid").reindex(ordered).reset_index()
+    return sub, missing
+
+
+def build_gene_family_matrix(matrix, families):
+    """Sum a featureCounts matrix's rows into per-family rows.
+
+    matrix has a 'Geneid' column plus one column per sample; families maps a family
+    name to its member Geneids (order preserved). Each family's per-sample value is
+    the sum of its present members' counts. Families with zero present members are
+    skipped and collected into empty_families. Returns (family_matrix,
+    empty_families); family_matrix has 'gene_family' as its first (identity) column
+    followed by the sample columns, with family rows in the order given.
+    """
+    indexed = matrix.set_index("Geneid")
+    rows = []
+    empty_families = []
+    for name, members in families.items():
+        present = [m for m in members if m in indexed.index]
+        if not present:
+            empty_families.append(name)
+            continue
+        summed = indexed.loc[present].sum(axis=0)
+        row = OrderedDict([("gene_family", name)])
+        row.update(summed.to_dict())
+        rows.append(row)
+    family_matrix = pd.DataFrame(rows, columns=["gene_family"] + list(indexed.columns))
+    return family_matrix, empty_families
+
+
 def build_kraken2_matrix(samples, file_index, host_mapper):
     per_sample = OrderedDict()
     identity = OrderedDict()  # (taxid, rank) -> name
@@ -543,6 +585,55 @@ def build_viraquant_long(samples, file_index, host_mapper, virus_mapper, ref,
 # ---------------------------------------------------------------------------
 # Taxonomy map (optional) for readable scan names
 # ---------------------------------------------------------------------------
+
+def _dedupe(seq):
+    """Return the items of seq with later duplicates removed (order preserved)."""
+    return list(OrderedDict.fromkeys(seq))
+
+
+def load_host_gene_spec(path):
+    """Load a host-gene panel restricting the host featureCounts matrices.
+
+    Returns None when path is falsy, else (genes, families):
+
+    * ``.txt`` / other extension -- one Geneid per line; blank and ``#``-comment
+      lines are ignored. families is None; genes is the ordered de-duplicated list.
+    * ``.yaml`` / ``.yml`` -- a mapping of family name -> list of member Geneids.
+      families is an OrderedDict(name -> ordered de-duped members); genes is the
+      ordered de-duped union of all members (families flattened in file order).
+    """
+    if not path:
+        return None
+    ext = os.path.splitext(str(path).rstrip(".gz"))[1].lower()
+    if ext in (".yaml", ".yml"):
+        with open_text(path) as fh:
+            raw = yaml.safe_load(fh)
+        if not isinstance(raw, dict) or not raw:
+            sys.exit("Host-gene YAML %s must be a non-empty mapping of family name "
+                     "-> list of member genes." % path)
+        families = OrderedDict()
+        for name, members in raw.items():
+            if not isinstance(members, (list, tuple)):
+                sys.exit("Host-gene family '%s' in %s must map to a list of genes."
+                         % (name, path))
+            families[str(name)] = _dedupe(str(m).strip() for m in members
+                                          if str(m).strip())
+        genes = _dedupe(g for members in families.values() for g in members)
+        if not genes:
+            sys.exit("Host-gene YAML %s contains no genes." % path)
+        return genes, families
+    genes = []
+    with open_text(path) as fh:
+        for line in fh:
+            tok = line.strip()
+            if not tok or tok.startswith("#"):
+                continue
+            genes.append(tok)
+    genes = _dedupe(genes)
+    if not genes:
+        sys.exit("Host-gene file %s contains no genes." % path)
+    return genes, None
+
 
 def load_taxonomy_map(path):
     if not path:
@@ -1363,6 +1454,13 @@ def main():
     parser.add_argument("--taxonomy-map", dest="taxonomy_map", default=None,
                         help="Optional ncbi_taxonomy_map.json[.gz] to add readable "
                              "names to the scan-ref taxonomy tables.")
+    parser.add_argument("--host-genes", dest="host_genes", default=None,
+                        help="Optional host-gene panel. A .txt file (one Geneid per "
+                             "line; blank/# lines ignored) restricts the host "
+                             "featureCounts matrices to that subset, in file order. A "
+                             ".yaml/.yml file mapping family name -> member genes "
+                             "additionally emits family-summed matrices "
+                             "(host_gene_family_by_reads/_by_pairs).")
     parser.add_argument("--top-n", dest="top_n", default="10",
                         help="Comma-separated top-N values (one tab each) for the "
                              "scan top-N interactive table, e.g. '10,20,50' "
@@ -1413,12 +1511,35 @@ def main():
         for lib, title in zip(sample_info["library_ID"], sample_info["title"])
     }
 
-    # 2. host gene quantification
-    for kind, label in (("count_reads", "host_featureCounts_by_reads"),
-                        ("count_pairs", "host_featureCounts_by_pairs")):
+    # 2. host gene quantification (optionally subset / summarized by --host-genes)
+    spec = load_host_gene_spec(o.host_genes)
+    genes, families = spec if spec else (None, None)
+    warned_missing = warned_empty = False
+    for kind, label, fam_label in (
+            ("count_reads", "host_featureCounts_by_reads", "host_gene_family_by_reads"),
+            ("count_pairs", "host_featureCounts_by_pairs", "host_gene_family_by_pairs")):
         mat = build_featurecounts_matrix(samples, file_index, host_mapper, kind)
-        if mat is not None:
-            tables.append((label, mat))
+        if mat is None:
+            continue
+        fam = None
+        if genes is not None:
+            # Build the family matrix from the full matrix before subsetting so member
+            # selection is independent of the subset's ordering.
+            if families is not None:
+                fam, empty = build_gene_family_matrix(mat, families)
+                if empty and not warned_empty:
+                    eprint("Warning: %d gene family/families had no members present: %s"
+                           % (len(empty), ", ".join(empty)))
+                    warned_empty = True
+            mat, missing = subset_featurecounts_matrix(mat, genes)
+            if missing and not warned_missing:
+                eprint("Warning: %d of %d requested host gene(s) not found in "
+                       "featureCounts data: %s"
+                       % (len(missing), len(genes), ", ".join(missing)))
+                warned_missing = True
+        tables.append((label, mat))
+        if fam is not None and not fam.empty:
+            tables.append((fam_label, fam))
 
     # 3. Kraken2
     kraken = build_kraken2_matrix(samples, file_index, host_mapper)
