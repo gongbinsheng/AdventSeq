@@ -41,6 +41,7 @@ cython_debug/
 
 # Local sample inputs
 sample_data/
+example*
 
 # Manuscript (kept on dedicated Manuscript branch; ignored on main)
 Manuscript/

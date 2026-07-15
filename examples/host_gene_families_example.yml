@@ -1,0 +1,53 @@
+# Example host-gene panel for `collect-results --host-genes`.
+#
+# Each top-level key is a gene family name; its value is the list of member
+# genes. The identifiers must match the `Geneid` column of the featureCounts
+# output, i.e. whatever gene ids your annotation (GTF) uses. This example uses
+# human gene symbols, matching the UCSC hg38 iGenomes annotation referenced in
+# pipeline_settings.yml; adjust the symbols/ids to your own GTF.
+#
+# With a .yml/.yaml file, collect-results writes BOTH:
+#   * host_featureCounts_by_reads / _by_pairs  -- subset to the union of all
+#     member genes below (individual genes, in the order listed here), and
+#   * host_gene_family_by_reads / _by_pairs    -- one row per family, each
+#     per-sample value being the SUM of that family's present members.
+# Genes not found in the data are warned about once; a family with no present
+# members is skipped with a warning.
+#
+# The families below are host antiviral / innate-immune response programs,
+# relevant when quantifying the host reaction to a viral infection.
+
+Type_I_interferons:
+  - IFNA1
+  - IFNA2
+  - IFNB1
+
+Type_III_interferons:
+  - IFNL1
+  - IFNL2
+  - IFNL3
+
+Interferon_stimulated_genes:
+  - ISG15
+  - MX1
+  - MX2
+  - OAS1
+  - OAS2
+  - OAS3
+  - IFIT1
+  - IFIT2
+  - IFIT3
+  - RSAD2
+
+Viral_RNA_sensors:
+  - DDX58   # RIG-I
+  - IFIH1   # MDA5
+  - TLR3
+  - TLR7
+  - TLR8
+
+Proinflammatory_cytokines:
+  - IL6
+  - TNF
+  - CXCL10
+  - CCL5

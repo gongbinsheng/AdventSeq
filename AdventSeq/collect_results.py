@@ -591,6 +591,20 @@ def _dedupe(seq):
     return list(OrderedDict.fromkeys(seq))
 
 
+def host_gene_prefix(path):
+    """Table-name prefix derived from a --host-genes file's base name.
+
+    Drops the directory, a trailing ``.gz``, and the extension, then sanitizes to
+    a filename/sheet-safe token (e.g. ``genes.txt`` -> ``genes``;
+    ``host_gene_families_example.yml`` -> ``host_gene_families_example``).
+    """
+    base = os.path.basename(str(path))
+    if base.endswith(".gz"):
+        base = base[:-3]
+    stem = os.path.splitext(base)[0]
+    return re.sub(r"[^0-9A-Za-z._-]+", "_", stem).strip("_") or "host_genes"
+
+
 def load_host_gene_spec(path):
     """Load a host-gene panel restricting the host featureCounts matrices.
 
@@ -1455,12 +1469,13 @@ def main():
                         help="Optional ncbi_taxonomy_map.json[.gz] to add readable "
                              "names to the scan-ref taxonomy tables.")
     parser.add_argument("--host-genes", dest="host_genes", default=None,
-                        help="Optional host-gene panel. A .txt file (one Geneid per "
-                             "line; blank/# lines ignored) restricts the host "
-                             "featureCounts matrices to that subset, in file order. A "
-                             ".yaml/.yml file mapping family name -> member genes "
-                             "additionally emits family-summed matrices "
-                             "(host_gene_family_by_reads/_by_pairs).")
+                        help="Optional host-gene panel. The complete host featureCounts "
+                             "matrices are always written; this adds extra tables named "
+                             "with the list file's base name as a prefix. A .txt file "
+                             "(one Geneid per line; blank/# lines ignored) adds a subset "
+                             "matrix (those genes, in file order). A .yaml/.yml file "
+                             "mapping family name -> member genes adds both the subset "
+                             "matrix and family-summed matrices.")
     parser.add_argument("--top-n", dest="top_n", default="10",
                         help="Comma-separated top-N values (one tab each) for the "
                              "scan top-N interactive table, e.g. '10,20,50' "
@@ -1511,9 +1526,13 @@ def main():
         for lib, title in zip(sample_info["library_ID"], sample_info["title"])
     }
 
-    # 2. host gene quantification (optionally subset / summarized by --host-genes)
+    # 2. host gene quantification. The complete matrices are always written; when
+    # --host-genes is given, additional subset (and, for a YAML family file, family-
+    # summed) matrices are written alongside them, named with the list file's base
+    # name as a prefix.
     spec = load_host_gene_spec(o.host_genes)
     genes, families = spec if spec else (None, None)
+    gene_prefix = host_gene_prefix(o.host_genes) if genes is not None else None
     warned_missing = warned_empty = False
     for kind, label, fam_label in (
             ("count_reads", "host_featureCounts_by_reads", "host_gene_family_by_reads"),
@@ -1521,25 +1540,24 @@ def main():
         mat = build_featurecounts_matrix(samples, file_index, host_mapper, kind)
         if mat is None:
             continue
-        fam = None
-        if genes is not None:
-            # Build the family matrix from the full matrix before subsetting so member
-            # selection is independent of the subset's ordering.
-            if families is not None:
-                fam, empty = build_gene_family_matrix(mat, families)
-                if empty and not warned_empty:
-                    eprint("Warning: %d gene family/families had no members present: %s"
-                           % (len(empty), ", ".join(empty)))
-                    warned_empty = True
-            mat, missing = subset_featurecounts_matrix(mat, genes)
-            if missing and not warned_missing:
-                eprint("Warning: %d of %d requested host gene(s) not found in "
-                       "featureCounts data: %s"
-                       % (len(missing), len(genes), ", ".join(missing)))
-                warned_missing = True
-        tables.append((label, mat))
-        if fam is not None and not fam.empty:
-            tables.append((fam_label, fam))
+        tables.append((label, mat))  # complete matrix, always
+        if genes is None:
+            continue
+        sub, missing = subset_featurecounts_matrix(mat, genes)
+        if missing and not warned_missing:
+            eprint("Warning: %d of %d requested host gene(s) not found in "
+                   "featureCounts data: %s"
+                   % (len(missing), len(genes), ", ".join(missing)))
+            warned_missing = True
+        tables.append(("%s_%s" % (gene_prefix, label), sub))
+        if families is not None:
+            fam, empty = build_gene_family_matrix(mat, families)
+            if empty and not warned_empty:
+                eprint("Warning: %d gene family/families had no members present: %s"
+                       % (len(empty), ", ".join(empty)))
+                warned_empty = True
+            if not fam.empty:
+                tables.append(("%s_%s" % (gene_prefix, fam_label), fam))
 
     # 3. Kraken2
     kraken = build_kraken2_matrix(samples, file_index, host_mapper)
