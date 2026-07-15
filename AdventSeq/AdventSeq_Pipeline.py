@@ -1960,7 +1960,7 @@ class Pipeline:
                                           "count_pairs" if countReadPairs else "count_reads"))
         batch.append('featureCounts \\\n')
         batch.append('    -F %s \\\n' % annotation_format)
-        if feature in ("exon","transcript","CDS"):
+        if feature in ("genome","exon","transcript","CDS"):
             batch.append('    -t %s \\\n' % feature)
         else:
             sys.exit("Wrong feature: %s\n" % feature)
