@@ -29,12 +29,12 @@ flowchart TD
 
 - The `AdventSeq` conda environment (see the main [README.md](../README.md) for setup). Activate it first: `conda activate AdventSeq`.
 - Network access to reach NCBI E-utilities.
-- This is a standalone script; run it directly with `python build_ncbi_taxonomy_map.py ...`.
+- Installed as the console command `build-ncbi-taxonomy-map` by `pip install -e .` / `uv sync`; run `build-ncbi-taxonomy-map ...` from any directory.
 
 ## Usage
 
 ```bash
-python build_ncbi_taxonomy_map.py \
+build-ncbi-taxonomy-map \
   --contig_info <contig_info file> \
   --email <your email> \
   --out <output.json.gz>
@@ -104,7 +104,7 @@ Field meanings:
 ## Examples
 
 ```bash
-python build_ncbi_taxonomy_map.py \
+build-ncbi-taxonomy-map \
   --contig_info sample_data/contig_info.json.gz \
   --email Binsheng.Gong@fda.hhs.gov \
   --retry 3 \
@@ -142,7 +142,7 @@ When `--prev_map` points to an earlier output (for example, the v29.0 map while 
 Example, building v31.0 while reusing v29.0:
 
 ```bash
-python build_ncbi_taxonomy_map.py \
+build-ncbi-taxonomy-map \
   --contig_info v31.0/contig_info.json.gz \
   --email Binsheng.Gong@fda.hhs.gov \
   --prev_map v29.0/ncbi_taxonomy_map.json.gz \

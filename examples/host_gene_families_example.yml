@@ -3,8 +3,8 @@
 # Each top-level key is a gene family name; its value is the list of member
 # genes. The identifiers must match the `Geneid` column of the featureCounts
 # output, i.e. whatever gene ids your annotation (GTF) uses. This example uses
-# human gene symbols, matching the UCSC hg38 iGenomes annotation referenced in
-# pipeline_settings.yml; adjust the symbols/ids to your own GTF.
+# human gene symbols, matching the UCSC hg38.ncbiRefSeq.gtf annotation used by
+# the example pipeline; adjust the symbols/ids to your own GTF.
 #
 # With a .yml/.yaml file, collect-results writes BOTH:
 #   * host_featureCounts_by_reads / _by_pairs  -- subset to the union of all

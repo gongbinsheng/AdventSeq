@@ -27,13 +27,13 @@ flowchart TD
 ## Requirements
 
 - The `AdventSeq` conda environment (see the main [README.md](../README.md) for setup). Activate it first: `conda activate AdventSeq`.
-- This is a standalone script; run it directly with `python convert_ViraQuant_scan_to_ncbitaxon.py ...`.
+- Installed as the console command `convert-ViraQuant-scan-to-ncbitaxon` by `pip install -e .` / `uv sync`; run `convert-ViraQuant-scan-to-ncbitaxon ...` from any directory.
 - The converter operates on existing scan TSVs only; it does not reopen BAMs or recompute exact pooled depth distributions.
 
 ## Usage
 
 ```bash
-python convert_ViraQuant_scan_to_ncbitaxon.py \
+convert-ViraQuant-scan-to-ncbitaxon \
   --input <ViraQuant_scan.tsv[.gz]> \
   --taxonomy-map <taxonomy_map.json[.gz]> \
   --output <out.tsv[.gz]> \
@@ -186,13 +186,13 @@ The `depth_at_<pct>pct` columns report the read depth at which a given fraction 
 
 Only the `depth_at_<pct>pct` family is affected by this option. Counts, pooled means, `pass_k_*` flags, and best-contig fields are unchanged.
 
-Worked example (Zika virus, taxid 64320, sample `1_S1` HISAT2/bowtie2), where the 12 grouped contigs have per-contig `depth_at_50pct` values `[8, 0, 0, 0, 0, 0, 8, 0, 1, 0, 0, 0]`:
+Worked example (a hypothetical taxon, taxid `12345`, in sample `S01`), where the 5 grouped contigs have lengths `[1000, 2000, 3000, 1000, 3000]` bp and per-contig `depth_at_50pct` values `[8, 0, 0, 4, 0]`:
 
 | `--depth-summary` | grouped `depth_at_50pct` | detected at `>= 1`? |
 | --- | --- | --- |
 | `max` | `8` | yes |
 | `median` | `0` | no |
-| `mean` | `1.43597` | yes |
+| `mean` | `1.2` | yes |
 
 ### Best-contig fields
 
@@ -215,7 +215,7 @@ Grouped best-contig fields are then populated from that chosen row:
 ## Examples
 
 ```bash
-python convert_ViraQuant_scan_to_ncbitaxon.py \
+convert-ViraQuant-scan-to-ncbitaxon \
   --input Manuscript/Results/ViraQuant_scan/sample.ViraQuant_scan.tsv.gz \
   --taxonomy-map sample_data/ncbi_taxonomy_map.json.gz \
   --output sample.ViraQuant_scan.ncbitaxon.tsv.gz \

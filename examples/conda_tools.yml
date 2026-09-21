@@ -1,0 +1,17 @@
+# Conda envs used by the AdventSeq example pipeline.
+#
+# This is a subset of the bundled AdventSeq/conda_tools.yml that keeps only the
+# envs the example actually runs, so you do not have to install aligners the
+# example never calls (STAR, HISAT2, SPAdes, ...). The example driver loads it
+# with Pipeline.set_conda_tools_config(). See AdventSeq/conda_tools.yml for the
+# meaning of each field.
+MultiQC:    {steps: [MultiQC],    package: "multiqc fastqc", version_cmd: "multiqc --version | sed -E 's/^.*[Vv]ersion[[:space:]]*//'"}
+fastp:      {steps: [fastp],      package: fastp,      version_cmd: "fastp --version 2>&1 | sed -E 's/^fastp[[:space:]]*//'"}   # stderr
+BWA:        {steps: [BWA_MEM],    package: bwa,        version_cmd: "bwa 2>&1 | grep -i '^Version' | sed -E 's/^[Vv]ersion:[[:space:]]*//'"}   # no flag, stderr
+Kraken2:    {steps: [Kraken2],    package: kraken2,    version_cmd: "kraken2 --version | head -n1 | sed -E 's/^.*[Vv]ersion[[:space:]]*//'"}
+samtools:   {steps: [samtools, sort_SAM, sort_BAM, SAM2BAM, BAM_stat, unmapped_to_fastq,
+                     remove_read_pairs_mapped_to_host, depth_by_pos],
+             package: samtools,   version_cmd: "samtools --version | head -n1 | sed -E 's/^samtools[[:space:]]*//'"}
+Subread:    {steps: [featureCounts], package: subread, version_cmd: "featureCounts -v 2>&1"}  # stderr
+AdventSeq:  {steps: [TaxonomyClassifier, ViraQuant, convert_ViraQuant_scan_to_ncbitaxon], package: null, version_cmd: "pip show AdventSeq 2>/dev/null | grep -i '^Version' | sed -E 's/^[Vv]ersion:[[:space:]]*//'"}   # this package's own env
+gatk:       {steps: [GATK4_Mutect2], package: gatk4,   version_cmd: "gatk --version 2>&1 | grep 'GATK) v' | sed -E 's/^.*GATK.[[:space:]]*v//'"}

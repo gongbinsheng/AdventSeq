@@ -22,12 +22,12 @@ flowchart TD
 ## Requirements
 
 - The `AdventSeq` conda environment (see the main [README.md](../README.md) for setup). Activate it first: `conda activate AdventSeq`.
-- This is a standalone script; run it directly with `python add_rvdb_columns.py ...`.
+- Installed as the console command `add-rvdb-columns` by `pip install -e .` / `uv sync`; run `add-rvdb-columns ...` from any directory.
 
 ## Usage
 
 ```bash
-python add_rvdb_columns.py \
+add-rvdb-columns \
   --kraken-inspect <viral.inspect.report> \
   --rvdb-json <taxonomy_map.json[.gz]> \
   --output <out.tsv>
@@ -89,7 +89,7 @@ Field meanings for the appended columns:
 ## Examples
 
 ```bash
-python add_rvdb_columns.py \
+add-rvdb-columns \
   --kraken-inspect viral.inspect.report \
   --rvdb-json v31.0/ncbi_taxonomy_map.json.gz \
   --output viral.inspect.with_rvdb.tsv

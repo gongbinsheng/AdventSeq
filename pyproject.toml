@@ -1,7 +1,7 @@
 [project]
-name = "adventseq"
-version = "3.1.1"
-description = "AdventSeq: an HPC pipeline builder and viral quantification toolkit for sequencing data"
+name = "AdventSeq"
+version = "3.2.0"
+description = "AdventSeq: a comprehensive bioinformatics pipeline for detection of adventitious viral agents with RNA-seq"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [

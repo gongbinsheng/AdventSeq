@@ -22,12 +22,12 @@ flowchart TD
 ## Requirements
 
 - The `AdventSeq` conda environment (see the main [README.md](../README.md) for setup). Activate it first: `conda activate AdventSeq`.
-- This is a standalone script; run it directly with `python convert_rvdb_to_json.py ...`.
+- Installed as the console command `convert-rvdb-to-json` by `pip install -e .` / `uv sync`; run `convert-rvdb-to-json ...` from any directory.
 
 ## Usage
 
 ```bash
-python convert_rvdb_to_json.py \
+convert-rvdb-to-json \
   [--RVDB_ROOT <rvdb root directory>] \
   <release>
 ```
@@ -75,7 +75,7 @@ The script prints the output path on success.
 ## Examples
 
 ```bash
-python convert_rvdb_to_json.py --RVDB_ROOT /data/RVDB v31.0
+convert-rvdb-to-json --RVDB_ROOT /data/RVDB v31.0
 ```
 
 This reads `/data/RVDB/v31.0/U-RVDBv31.0.sqlite.db` (decompressing `U-RVDBv31.0.sqlite.db.gz` first if needed) and writes `/data/RVDB/v31.0/contig_info.json.gz`.

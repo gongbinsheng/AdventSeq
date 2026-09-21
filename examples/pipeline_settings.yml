@@ -1,44 +1,19 @@
-# Edit this file to configure pipeline environments and optional reference paths.
-# To use a personal override instead, set ADVENTSEQ_ENVS_YML=/path/to/your_settings.yml
-envs4steps:
-  MultiQC: MultiQC
-  fastp: fastp
-  BWA_MEM: BWA
-  Bowtie2: Bowtie2
-  Kraken2: Kraken2
-  minimap2: minimap2
-  HISAT2: HISAT2
-  STAR: STAR
-  samtools: samtools
-  sort_SAM: samtools
-  sort_BAM: samtools
-  SAM2BAM: samtools
-  BAM_stat: samtools
-  BAM_not_in_BED: bedtools
-  unmapped_to_fastq: samtools
-  remove_read_pairs_mapped_to_host: samtools
-  htseq_count: HTSeq
-  featureCounts: Subread
-  depth_by_pos: samtools
-  BAM2BigWig: deepTools
-  __BAM_to_proper_paired_FASTQ_of_a_contig: samtools
-  SPAdes: SPAdes
-  TaxonomyClassifier: AdventSeq
-  ViraQuant: AdventSeq
-  GATK4_Mutect2: gatk
-
-# Optional reference paths loaded during Pipeline object initialization.
-# Define one or more reference bundles keyed by ref_genome.
-reference_paths:
-  hg38:
-    genome_fasta: /home/bigong/workspace/Resources/refGenomes/Homo_sapiens/UCSC/hg38/Sequence/WholeGenomeFasta/genome.fa
-    bwa_index: /home/bigong/workspace/Resources/refGenomes/Homo_sapiens/UCSC/hg38/Sequence/BWAIndex/genome.fa
-    #bowtie2_index: /home/bigong/workspace/Resources/refGenomes/Homo_sapiens/UCSC/hg38/Sequence/Bowtie2Index/genome
-    #minimap2_index: /home/bigong/workspace/Resources/refGenomes/Homo_sapiens/UCSC/hg38/Sequence/minimap2Index/genome.mmi
-    #hisat2_index: /home/bigong/workspace/Resources/refGenomes/Homo_sapiens/UCSC/hg38/Sequence/HISAT2Index/genome
-    #star_index: /home/bigong/workspace/Resources/refGenomes/Homo_sapiens/UCSC/hg38/Sequence/STARIndex
-    gtf: /home/bigong/workspace/Resources/refGenomes/Homo_sapiens/UCSC/hg38/Annotation/Archives/archive-2015-08-14-08-18-15/Genes/genes.gtf
-#   mm10:
-#     genome_fasta: /path/to/mm10/genome.fa
-#     bwa_index: /path/to/mm10/bwa/index/prefix
-#     gtf: /path/to/mm10/genes.gtf
+# Pipeline settings for the AdventSeq example.
+#
+# The example driver (create_pipeline_script_example.py) passes every reference
+# path explicitly, using the files prepared under examples/references/, so no
+# reference_paths block is needed here.
+#
+# Optional: instead of passing paths in the driver script, you can define
+# reference bundles keyed by ref_genome. BWA_MEM / featureCounts / GATK4_Mutect2
+# then resolve them automatically. Paths must be ABSOLUTE, because the generated
+# job scripts run inside each sample's own working directory.
+#
+# reference_paths:
+#   hg38:
+#     genome_fasta: /absolute/path/to/hg38/hg38.fa
+#     bwa_index: /absolute/path/to/hg38/BWAIndex/genome.fa
+#     gtf: /absolute/path/to/hg38/hg38.ncbiRefSeq.gtf
+#
+# When the config is loaded, AdventSeq checks that every conda env exists and
+# appends a commented "AdventSeq tool versions" block to the end of this file.

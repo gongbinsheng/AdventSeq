@@ -92,9 +92,9 @@ When you change analysis branches, `reset_pipeline()` can be used to create a ne
 - `is_valid_DNA_sequence(s)`
   Validates that a string contains only `A`, `T`, `C`, and `G`.
 
-(Other module-level helpers such as `parse_gtf` and `OrderedDefaultDict` are internal and not exported from the `AdventSeq` package.)
+(Other module-level helpers such as `parse_gtf` are internal and not exported from the `AdventSeq` package.)
 
-`Pipeline.batch` uses a custom internal `OrderedDefaultDict` so that sections are emitted in insertion order while still behaving like a `defaultdict(list)`. This matters because the generated job script is assembled from ordered blocks such as `HPC`, `ENV`, per-step sections like `sampleA|merge_lanes`, and downstream sections such as alignment, counting, and variant calling.
+`Pipeline.batch` is a `defaultdict(list)`; Python dicts keep insertion order, so sections are emitted in the order the steps were called. This matters because the generated job script is assembled from ordered blocks such as `HPC`, `ENV`, per-step sections like `sampleA|merge_lanes`, and downstream sections such as alignment, counting, and variant calling.
 
 ### Class-level settings
 
@@ -171,7 +171,7 @@ That updates all of these class attributes together: `Pipeline.config`, `Pipelin
 
 - `set_qsub_parameters()` — Builds an SGE-style script header using `#$` directives, including job name, current working directory, merged stdout/stderr, host include or exclude rules, memory if configured, thread count, and output log path.
 - `set_slurm_parameters()` — Builds a Slurm header using `#SBATCH` directives, including job name, output and error file, CPU count, and an optional memory line.
-- `set_env_variables()` — Creates the environment/bootstrap section of the generated script. This block sources `/account001/bgong/init_conda.sh`, defines `SID`, creates and enters `"$WD/$SID"`, and initializes `my_progress`. This is usually one of the first methods you should call after setting scheduler parameters.
+- `set_env_variables()` — Creates the environment/bootstrap section of the generated script. This block sources the conda init script set with `Pipeline.set_conda_init_script()` (if any), defines `SID`, creates and enters `"$WD/$SID"`, and initializes `my_progress`. This is usually one of the first methods you should call after setting scheduler parameters.
 
 ### Reference path setters
 
@@ -204,7 +204,6 @@ If you change `ref_genome` with `set_ref_genome()`, the module clears any curren
 - `BAM_not_in_BED(region, force=False)` — Extracts alignments outside a BED-defined region and creates coverage BED files at multiple coverage thresholds.
 - `depth_by_pos(min_MAPQ=1, force=False)` — Generates per-position depth with `samtools depth`.
 - `BAM2BigWig(force=False)` — Uses `bamCoverage` to create a normalized BigWig. The scale factor is derived from the assigned read count in `featureCounts` summary output.
-- `coverage_from_BigWig(bed_file, force=False)` — Runs an external helper script on coverage data. Note that the current implementation accepts `bed_file` but does not use it inside the command block.
 - `unmapped_to_fastq()` — Extracts unmapped reads from `BAM` to paired and singleton FASTQ outputs.
 
 **Alignment**
@@ -219,8 +218,8 @@ All aligners require FASTQ input, set `mapper`, write runtime information into `
 
 **Host removal and taxonomic analysis**
 
-- `remove_read_pairs_mapped_to_host(use_samtools=True, force=False)` — Extracts paired reads that remain unmapped to the host from `BAM`, writes new FASTQ files, and resets `SID`, `FASTQ_R1`, and `FASTQ_R2` for downstream classification.
-- `Kraken2(db_name="standard", kraken2_db_root="/galaxy001/Resources/Kraken2DB", force=False)` — Runs paired-end Kraken2 classification against a selected database.
+- `remove_read_pairs_mapped_to_host(force=False)` — Uses samtools to extract paired reads that remain unmapped to the host from `BAM`, writes new FASTQ files, and resets `SID`, `FASTQ_R1`, and `FASTQ_R2` for downstream classification.
+- `Kraken2(db_name="standard", kraken2_db_root=None, force=False)` — Runs paired-end Kraken2 classification against the database `<kraken2_db_root>/<db_name>`. `kraken2_db_root` is required.
 - `TaxonomyClassifier(contig_info, taxonomy_map=None, virus_group_by=None, force=False)` — Runs the `TaxonomyClassifier` console command against the current BAM.
 - `ViraQuant(virus_list=None, top_n=10, scan_by=None, force=False)` — Runs the local `ViraQuant.py` helper against `sorted_BAM`.
 
@@ -372,8 +371,7 @@ If you prefer Slurm, replace `set_qsub_parameters()` with `set_slurm_parameters(
 ## Notes / Caveats
 
 - The module exits with `sys.exit(...)` for most validation failures, so callers should expect hard-stop behavior rather than recoverable exceptions.
-- Several steps assume external absolute paths such as `/account001/bgong/...` or `/galaxy001/Resources/...`. Those paths may need to be adapted for another environment. The `TaxonomyClassifier()` and `ViraQuant()` step methods generate commands that invoke the installed `TaxonomyClassifier` and `ViraQuant` console commands, which must be available on `PATH` in the conda env those steps activate.
-- `coverage_from_BigWig(bed_file, ...)` currently ignores its `bed_file` argument when building the command block.
+- The `TaxonomyClassifier()` and `ViraQuant()` step methods generate commands that invoke the installed `TaxonomyClassifier` and `ViraQuant` console commands, which must be available on `PATH` in the conda env those steps activate.
 - `MultiQC()` removes and recreates its output directory before running.
 - `fastp()` is written with FASTQ input in mind and is not intended for BAM input.
 - There is no built-in method in this file for writing `Pipeline.batch` to disk or submitting jobs automatically.

@@ -39,16 +39,16 @@ flowchart TD
 - Input BAM must be:
   - coordinate-sorted
   - indexed (`.bai` present)
-- This is a standalone script; run it directly with `python ViraQuant.py ...`.
+- Installed as the console command `ViraQuant` by `pip install -e .` / `uv sync`; run `ViraQuant ...` from any directory.
 
 ```bash
-python ViraQuant.py --help
+ViraQuant --help
 ```
 
 ## Usage
 
 ```bash
-python ViraQuant.py \
+ViraQuant \
   --bam <sorted.indexed.bam> \
   [--viruses <virus_list.txt | contigA,contigB,...>] \
   [--top-n N] \
@@ -231,7 +231,7 @@ This is recommended because it:
 
 ### 1) Analyze a virus list (with virus-level grouping)
 ```bash
-python ViraQuant.py \
+ViraQuant \
   --bam sample.sorted.bam \
   --viruses virus_list.txt \
   --out virus_metrics.tsv
@@ -239,7 +239,7 @@ python ViraQuant.py \
 
 ### 2) Analyze a single contig
 ```bash
-python ViraQuant.py \
+ViraQuant \
   --bam sample.sorted.bam \
   --viruses NC_045512.2 \
   --out sars2_metrics.tsv
@@ -247,7 +247,7 @@ python ViraQuant.py \
 
 ### 3) No virus list: report top 10 contigs by mapped_reads/length
 ```bash
-python ViraQuant.py \
+ViraQuant \
   --bam sample.sorted.bam \
   --top-n 10 \
   --out top10_metrics.tsv
@@ -255,7 +255,7 @@ python ViraQuant.py \
 
 ### 4) Full-BAM scan: report contigs passing a depth filter
 ```bash
-python ViraQuant.py \
+ViraQuant \
   --bam sample.sorted.bam \
   --scan-by 'mean_depth_ge_2>=2' \
   --out passing_contigs.tsv
@@ -263,7 +263,7 @@ python ViraQuant.py \
 
 ### 5) Full-BAM scan: auto-extend `--percents`
 ```bash
-python ViraQuant.py \
+ViraQuant \
   --bam sample.sorted.bam \
   --percents 80,90 \
   --scan-by 'depth_at_85pct>=3' \
@@ -277,7 +277,7 @@ The progress bar only appears on an interactive terminal, so an HPC job log is a
 (only the final report and any warnings/errors are written). Use `--silent` to suppress the bar
 even when running interactively:
 ```bash
-python ViraQuant.py \
+ViraQuant \
   --bam sample.sorted.bam \
   --scan-by 'mapped_per_bp>=0.01' \
   --silent \
@@ -286,7 +286,7 @@ python ViraQuant.py \
 
 ### 7) Customize quantiles and breadth thresholds; require depth ≥ 3
 ```bash
-python ViraQuant.py \
+ViraQuant \
   --bam sample.sorted.bam \
   --viruses virus_list.txt \
   --percents 80,90,95,100 \

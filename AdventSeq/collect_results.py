@@ -1460,7 +1460,7 @@ def main():
                              "step (matched in file names), e.g. 'RVDBv29'.")
     parser.add_argument("--targeted-refs", dest="targeted_refs", required=True,
                         help="Comma-separated targeted virus-list reference names, "
-                             "e.g. '7viruses,9viruses'.")
+                             "e.g. 'virus_panel,respiratory_panel'.")
     parser.add_argument("--host-mapper", dest="host_mapper", default=None,
                         help="Host aligner name (auto-detected if only one present).")
     parser.add_argument("--virus-mapper", dest="virus_mapper", default=None,

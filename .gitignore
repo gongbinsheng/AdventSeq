@@ -41,7 +41,20 @@ cython_debug/
 
 # Local sample inputs
 sample_data/
-example*
+
+# Example data and outputs (large; only the placeholder READMEs are tracked)
+examples/data/fastq/*
+!examples/data/fastq/README.md
+examples/references/hg38/*
+!examples/references/hg38/README.md
+examples/references/Kraken2DB/*
+!examples/references/Kraken2DB/README.md
+examples/references/RVDB/v29.0/*
+!examples/references/RVDB/v29.0/README.md
+examples/references/virus_panel/viruses.*
+examples/references/virus_panel/BWAIndex/
+examples/Results/
+examples/Collected_Tables/
 
 # Manuscript (kept on dedicated Manuscript branch; ignored on main)
 Manuscript/

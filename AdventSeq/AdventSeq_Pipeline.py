@@ -995,7 +995,7 @@ class Pipeline:
         batch = []
         batch.append('#!/bin/bash\n')
         batch.append('#\n')
-        batch.append('#$ -N "BG_%s"\n' % self.sample_id)
+        batch.append('#$ -N "AdventSeq_%s"\n' % self.sample_id)
         batch.append('#$ -S /bin/bash\n')
         batch.append('#$ -cwd\n')
         batch.append('#$ -j y\n')
@@ -1016,7 +1016,7 @@ class Pipeline:
         batch = []
         batch.append('#!/bin/bash\n')
         batch.append('#\n')
-        batch.append('#SBATCH --job-name="BG_%s"\n' % self.sample_id)
+        batch.append('#SBATCH --job-name="AdventSeq_%s"\n' % self.sample_id)
         batch.append('#SBATCH --output="%s"\n' % self.log_file)
         batch.append('#SBATCH --error="%s"\n' % self.log_file)
         if self.memory is not None:
@@ -1811,56 +1811,27 @@ class Pipeline:
         self.batch[step_id].extend(batch)
 
 
-    def remove_read_pairs_mapped_to_host(self, use_samtools=True, force=False):
+    def remove_read_pairs_mapped_to_host(self, force=False):
         batch = []
         fn_name = inspect.currentframe().f_code.co_name  # get the name of the function
         step_id = self.__current_step_id + "|" + fn_name
-        # sort SAM file by query name before this step
-        #self.sort_SAM(force=force, by_qname=True)
-        # continue this step
         batch.append(f'{"#" * (len(step_id) + 8)}\n')
         batch.append('### %s ###\n' % step_id)
         batch.append(f'{"#" * (len(step_id) + 8)}\n')
         batch.append('conda activate %s\n\n' % self.envs4steps[fn_name])
         self.required_conda_envs.add(self.envs4steps[fn_name])  # add env name to required env list
         # commands
-        if use_samtools:
-            batch.append('samtools view -b -f 12 -F 2304 -@ %d "${BAM}" \\\n' % self.threadN)
-            # -f 12: Ensures that at least one read in the pair is unmapped (READ1_UNMAPPED or READ2_UNMAPPED)
-            # -F 256: Excludes secondary alignments
-            # -F 2048: Excludes supplementary alignments
-            # -F 2048 + 256 = 2304, so we use -F 2304 to exclude both secondary and supplementary alignments
-            batch.append(' | samtools sort -n -@ %d \\\n' % self.threadN)
-            batch.append(' | samtools fastq -n -@ %d \\\n' % self.threadN)
-            batch.append('    -1 "${BAM%.*.*}.unmapped2host.R1.fastq.gz" \\\n')
-            batch.append('    -2 "${BAM%.*.*}.unmapped2host.R2.fastq.gz" \\\n')
-            batch.append('    -0 "${BAM%.*.*}.unmapped2host.single.fastq.gz" \\\n')
-            batch.append('    -s "${BAM%.*.*}.unmapped2host.orphan.fastq.gz"\n')
-            """
-            batch.append('samtools view -b -f 12 -F 256 -@ %d \\\n' % self.threadN)
-            # -f 12: Ensures that at least one read in the pair is unmapped (READ1_UNMAPPED or READ2_UNMAPPED)
-            # -F 256: Excludes secondary alignments
-            batch.append('    "${BAM}" \\\n')
-            batch.append('    > "${BAM%.*}.unmapped2host.bam"\n')
-            batch.append('if [ $? -ne 0 ]; then echo "Error: %s | samtools remove host reads failed."; exit 1; fi\n\n' % step_id)
-
-            batch.append('samtools sort -n -@ %d \\\n' % self.threadN)
-            batch.append('    -o "${BAM%.*}.unmapped2host.sorted_by_qname.bam" \\\n')
-            batch.append('    "${BAM%.*}.unmapped2host.bam"\n')
-            batch.append('if [ $? -ne 0 ]; then echo "Error: %s | samtools sort by qname failed."; exit 1; fi\n\n' % step_id)
-
-            batch.append('samtools fastq -n -@ %d \\\n' % self.threadN)
-            batch.append('    -1 "${BAM%.*}.unmapped2host.R1.fastq.gz" \\\n')
-            batch.append('    -2 "${BAM%.*}.unmapped2host.R2.fastq.gz" \\\n')
-            batch.append('    -0 "${BAM%.*}.unmapped2host.single.fastq.gz" \\\n')
-            batch.append('    -s "${BAM%.*}.unmapped2host.orphan.fastq.gz" \\\n')
-            batch.append('    "${BAM%.*}.unmapped2host.sorted_by_qname.bam"\n')
-            batch.append('if [ $? -ne 0 ]; then echo "Error: %s | samtools convert to fastq failed."; exit 1; fi\n\n' % step_id)
-            """
-        else:
-            batch.append('python /account/bgong/workspace/Project_DeLab/remove_host_read_pairs.py \\\n')
-            batch.append('    --bam "${BAM}" \\\n')
-            batch.append('    --prefix "${BAM%.*.*}.unmapped2host"\n')
+        batch.append('samtools view -b -f 12 -F 2304 -@ %d "${BAM}" \\\n' % self.threadN)
+        # -f 12: Ensures that at least one read in the pair is unmapped (READ1_UNMAPPED or READ2_UNMAPPED)
+        # -F 256: Excludes secondary alignments
+        # -F 2048: Excludes supplementary alignments
+        # -F 2048 + 256 = 2304, so we use -F 2304 to exclude both secondary and supplementary alignments
+        batch.append(' | samtools sort -n -@ %d \\\n' % self.threadN)
+        batch.append(' | samtools fastq -n -@ %d \\\n' % self.threadN)
+        batch.append('    -1 "${BAM%.*.*}.unmapped2host.R1.fastq.gz" \\\n')
+        batch.append('    -2 "${BAM%.*.*}.unmapped2host.R2.fastq.gz" \\\n')
+        batch.append('    -0 "${BAM%.*.*}.unmapped2host.single.fastq.gz" \\\n')
+        batch.append('    -s "${BAM%.*.*}.unmapped2host.orphan.fastq.gz"\n')
         # check if commands were completed successfully
         batch.append('if [ $? -ne 0 ]; then echo "Error: %s failed."; exit 1; fi\n\n' % step_id)
         batch.append('echo -e "%s\\t$(date +\'%%Y-%%m-%%d %%H:%%M:%%S\')" >> "$my_progress"\n\n' % step_id)
@@ -1879,7 +1850,11 @@ class Pipeline:
         self.batch[step_id].extend(batch)
 
 
-    def Kraken2(self, db_name="standard", kraken2_db_root="/galaxy001/Resources/Kraken2DB", force=False):
+    def Kraken2(self, db_name="standard", kraken2_db_root=None, force=False):
+        if kraken2_db_root is None:
+            sys.exit("Kraken2: kraken2_db_root is not set.\n"
+                     "Pass the folder that contains the Kraken2 database, e.g.\n"
+                     "  p.Kraken2(db_name=\"viral\", kraken2_db_root=\"/path/to/Kraken2DB\")\n")
         batch = []
         fn_name = inspect.currentframe().f_code.co_name  # get the name of the function
         step_id = self.__current_step_id + "|" + fn_name + "_" + db_name
@@ -2008,32 +1983,6 @@ class Pipeline:
         batch.append('    -q %d  \\\n' % min_MAPQ)
         batch.append('    "${sorted_BAM}" \\\n')
         batch.append(' | gzip > "${BAM}_depth.txt.gz"\n')
-        # check if commands were completed successfully
-        batch.append('if [ $? -ne 0 ]; then echo "Error: %s failed."; exit 1; fi\n\n' % step_id)
-        batch.append('echo -e "%s\\t$(date +\'%%Y-%%m-%%d %%H:%%M:%%S\')" >> "$my_progress"\n\n' % step_id)
-        batch.append('conda deactivate\n\n\n')
-        # test if this step has already been completed
-        # this is an endpoint, no need to set current step id
-        if step_id in self.progress and not force:
-            batch = self.__comment_lines(batch)
-        else:
-            self.is_completed = False
-        self.batch[step_id].extend(batch)
-
-
-    def coverage_from_BigWig(self, bed_file, force=False):
-        batch = []
-        fn_name = inspect.currentframe().f_code.co_name  # get the name of the function
-        step_id = self.__current_step_id + "|" + fn_name
-        batch.append(f'{"#" * (len(step_id) + 8)}\n')
-        batch.append('### %s ###\n' % step_id)
-        batch.append(f'{"#" * (len(step_id) + 8)}\n')
-        batch.append('conda activate %s\n\n' % self.envs4steps[fn_name])
-        self.required_conda_envs.add(self.envs4steps[fn_name])  # add env name to required env list
-        # commands
-        batch.append('python /account/bgong/workspace/Project_DeLab/bg2table.py \\\n')
-        batch.append('    --cov "${SID}.${mapper}.${ref_genome}.coverageBed.gz" \\\n')
-        batch.append('    --out_prefix "${SID}.${mapper}.${ref_genome}.boundary200"\n')
         # check if commands were completed successfully
         batch.append('if [ $? -ne 0 ]; then echo "Error: %s failed."; exit 1; fi\n\n' % step_id)
         batch.append('echo -e "%s\\t$(date +\'%%Y-%%m-%%d %%H:%%M:%%S\')" >> "$my_progress"\n\n' % step_id)
@@ -2238,8 +2187,7 @@ class Pipeline:
         if mode == "RNA":
             batch.append('    --max-mnp-distance 0 \\\n') # Prevents MNPs from being grouped, ensential for RNA-seq
             batch.append('    --disable-read-filter MateOnSameContigOrNoMappedMateReadFilter \\\n') # Prevents loss of useful RNA-seq reads that are properly mapped but don’t conform to DNA-seq pairing expectations
-        batch.append('    --output "${VCF}"\n')
-        batch.append(' > "${SAM}"\n\n')
+        batch.append('    --output "${VCF}"\n\n')
         # check if commands were completed successfully
         batch.append('if [ $? -ne 0 ]; then echo "Error: %s|caller failed."; exit 1; fi\n' % step_id)
         # filter

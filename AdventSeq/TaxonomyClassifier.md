@@ -55,12 +55,12 @@ flowchart TD
 
 - The `AdventSeq` conda environment (see the main [README.md](../README.md) for setup). Activate it first: `conda activate AdventSeq`.
 - Input BAM must be sorted by query name.
-- This is a standalone script; run it directly with `python TaxonomyClassifier.py ...`.
+- Installed as the console command `TaxonomyClassifier` by `pip install -e .` / `uv sync`; run `TaxonomyClassifier ...` from any directory.
 
 ## Usage
 
 ```bash
-python TaxonomyClassifier.py \
+TaxonomyClassifier \
   --bam <query-name-sorted BAM> \
   --combined_genome <combined genome name> \
   --contig_info <contig_info file> \
@@ -193,7 +193,7 @@ The `*.read_count.txt` report is tab-delimited and includes:
 ## Examples
 
 ```bash
-python TaxonomyClassifier.py \
+TaxonomyClassifier \
   --bam sample.bam \
   --combined_genome combined_genome_name \
   --contig_info sample_data/contig_info.json.gz \

@@ -23,7 +23,7 @@ collect-results \
   --results-dir ./Results \
   --out-dir ./Collected_Tables \
   --scan-ref RVDBv29 \
-  --targeted-refs 7viruses
+  --targeted-refs virus_panel
 ```
 
 ## Arguments
@@ -38,7 +38,7 @@ collect-results \
   as a substring of the file names (required), e.g. `RVDBv29` (the RVDB release used
   at run time determines this, e.g. `RVDBv31`).
 - `--targeted-refs` — comma-separated list of targeted virus-list reference names
-  (required), e.g. `7viruses,9viruses`. One set of targeted tables and one selectable
+  (required), e.g. `virus_panel,respiratory_panel`. One set of targeted tables and one selectable
   reference in the interactive HTML is produced per name.
 - `--host-mapper` / `--virus-mapper` — aligner names. Auto-detected when exactly one
   is present in the run; required only when the output mixes multiple mappers.

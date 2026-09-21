@@ -1,0 +1,44 @@
+{
+  "NC_001792.2": {
+    "source": "REFSEQ",
+    "description": "Porcine circovirus 1, complete genome",
+    "seqlen": 1758,
+    "organism": "Porcine circovirus 1"
+  },
+  "NC_005148.1": {
+    "source": "REFSEQ",
+    "description": "Porcine circovirus 2, complete genome",
+    "seqlen": 1768,
+    "organism": "Porcine circovirus 2"
+  },
+  "NC_001510.1": {
+    "source": "REFSEQ",
+    "description": "Minute virus of mice, complete genome",
+    "seqlen": 5149,
+    "organism": "Minute virus of mice"
+  },
+  "NC_001461.1": {
+    "source": "REFSEQ",
+    "description": "Bovine viral diarrhea virus 1, complete genome",
+    "seqlen": 12573,
+    "organism": "Bovine viral diarrhea virus 1"
+  },
+  "NC_001669.1": {
+    "source": "REFSEQ",
+    "description": "Simian virus 40 complete genome",
+    "seqlen": 5243,
+    "organism": "Simian virus 40"
+  },
+  "AC_000008.1": {
+    "source": "REFSEQ",
+    "description": "Human adenovirus 5, complete genome",
+    "seqlen": 35938,
+    "organism": "Human adenovirus 5"
+  },
+  "NC_001501.1": {
+    "source": "REFSEQ",
+    "description": "Moloney murine leukemia virus, complete genome",
+    "seqlen": 8332,
+    "organism": "Moloney murine leukemia virus"
+  }
+}
