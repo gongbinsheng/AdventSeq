@@ -1092,7 +1092,49 @@ class Pipeline:
         return commented_lines
 
 
-    def MultiQC(self, force=False):
+    __FLAG_PATTERN = re.compile(r'(?<!\S)(--?[A-Za-z0-9@][^\s="\']*)')
+
+    def __insert_extra_args(self, batch, tool_line, extra_args, step_id, repeatable=()):
+        """Insert user-supplied extra command-line arguments right after `tool_line`.
+
+        Call AFTER the command has been fully appended to `batch` (just before its
+        `if [ $? -ne 0 ]` check). The command spans from the last occurrence of
+        `tool_line` to the first following line without a line continuation.
+        `extra_args` may be a string ("--outSAMattributes NH HI AS nM NM MD") or a
+        list/tuple of tokens. Any flag in `extra_args` that the pipeline already
+        sets in that command is an error, unless it is listed in `repeatable`
+        (flags the tool accepts more than once, e.g. bowtie2's --rg).
+        """
+        if extra_args is None:
+            return
+        if isinstance(extra_args, (list, tuple)):
+            tokens = [str(a).strip() for a in extra_args if str(a).strip()]
+            extra_text = " ".join(tokens)
+        else:
+            extra_text = str(extra_args).strip()
+            try:
+                tokens = shlex.split(extra_text)
+            except ValueError as e:
+                sys.exit(f"ERROR: {step_id}: could not parse extra_args {extra_text!r}: {e}\n")
+        if not tokens:
+            return
+        start = len(batch) - 1 - batch[::-1].index(tool_line)
+        # flags the pipeline already sets in this command -> the line setting them
+        existing = {}
+        for line in batch[start + 1:]:
+            for flag in self.__FLAG_PATTERN.findall(line):
+                existing.setdefault(flag, line)
+            if not line.rstrip("\n").endswith("\\"):
+                break
+        extra_flags = {t.split("=", 1)[0] for t in tokens if t.startswith("-") and len(t) > 1}
+        conflicts = sorted((extra_flags & existing.keys()) - set(repeatable))
+        if conflicts:
+            details = "\n".join(f"    {flag}: {existing[flag].rstrip()}" for flag in conflicts)
+            sys.exit(f"ERROR: {step_id}: extra_args flag(s) already set by the pipeline:\n{details}\n")
+        batch.insert(start + 1, '    %s \\\n' % extra_text)
+
+
+    def MultiQC(self, extra_args=None, force=False):
         batch = []
         fn_name = inspect.currentframe().f_code.co_name # get the name of the function
         step_id = self.__current_step_id + "|" + fn_name
@@ -1114,6 +1156,7 @@ class Pipeline:
         for file in self.file_list:
             batch.append('    "%s" \\\n' % file)
         batch.append('    2>&1\n')
+        self.__insert_extra_args(batch, 'fastqc \\\n', extra_args, step_id)
         # check if commands were completed successfully
         batch.append('if [ $? -ne 0 ]; then echo "Error: %s - fastqc failed."; exit 1; fi\n' % step_id)
         # MultiQC
@@ -1185,7 +1228,7 @@ class Pipeline:
         self.batch[step_id].extend(batch)
 
 
-    def fastp(self, dedup=False, trim_adapter=True, trim_polyG=True, trim_polyX=True, force=False):
+    def fastp(self, dedup=False, trim_adapter=True, trim_polyG=True, trim_polyX=True, extra_args=None, force=False):
         batch = []
         fn_name = inspect.currentframe().f_code.co_name  # get the name of the function
         step_id = self.__current_step_id + "|" + fn_name
@@ -1253,6 +1296,7 @@ class Pipeline:
         batch.append('    --json="%s/${SID}.fastp.json" \\\n' % fn_name)
         batch.append('    --html="%s/${SID}.fastp.html" \\\n' % fn_name)
         batch.append('    --thread=%d\n\n' % self.threadN)
+        self.__insert_extra_args(batch, 'fastp \\\n', extra_args, step_id)
         # check if commands were completed successfully
         batch.append('if [ $? -ne 0 ]; then echo "Error: %s failed."; exit 1; fi\n' % step_id)
         batch.append('echo -e "%s\\t$(date +\'%%Y-%%m-%%d %%H:%%M:%%S\')" >> "$my_progress"\n\n' % step_id)
@@ -1415,7 +1459,7 @@ class Pipeline:
         self.batch[step_id].extend(batch)
 
 
-    def BWA_MEM(self, ref_genome=None, bwa_index=None, SAM=None, force=False):
+    def BWA_MEM(self, ref_genome=None, bwa_index=None, SAM=None, extra_args=None, force=False):
         batch = []
         self.mapper = "bwa_mem"
         if bwa_index is not None:
@@ -1464,6 +1508,7 @@ class Pipeline:
             batch.append('    "$FASTQ_R1" \\\n')
             batch.append('    "$FASTQ_R2" \\\n')
         batch.append(' > "${SAM}"\n\n')
+        self.__insert_extra_args(batch, 'bwa mem \\\n', extra_args, step_id)
         # check if commands were completed successfully
         batch.append('if [ $? -ne 0 ]; then echo "Error: %s failed."; exit 1; fi\n' % step_id)
         batch.append('echo -e "%s\\t$(date +\'%%Y-%%m-%%d %%H:%%M:%%S\')" >> "$my_progress"\n\n' % step_id)
@@ -1482,7 +1527,7 @@ class Pipeline:
         self.batch[step_id].extend(batch)
 
 
-    def Bowtie2(self, ref_genome=None, bowtie2_index=None, SAM=None, end2end=True, force=False):
+    def Bowtie2(self, ref_genome=None, bowtie2_index=None, SAM=None, end2end=True, extra_args=None, force=False):
         batch = []
         self.mapper = "bowtie2"
         if bowtie2_index is not None:
@@ -1540,6 +1585,7 @@ class Pipeline:
         if end2end:
             batch.append('    --end-to-end  \\\n')
         batch.append('    -S "${SAM}"\n\n')
+        self.__insert_extra_args(batch, 'bowtie2 \\\n', extra_args, step_id, repeatable=('--rg',))
         # check if commands were completed successfully
         batch.append('if [ $? -ne 0 ]; then echo "Error: %s failed."; exit 1; fi\n' % step_id)
         batch.append('echo -e "%s\\t$(date +\'%%Y-%%m-%%d %%H:%%M:%%S\')" >> "$my_progress"\n\n' % step_id)
@@ -1558,7 +1604,7 @@ class Pipeline:
         self.batch[step_id].extend(batch)
 
 
-    def minimap2(self, ref_genome=None, minimap2_index=None, SAM=None, force=False):
+    def minimap2(self, ref_genome=None, minimap2_index=None, SAM=None, extra_args=None, force=False):
         batch = []
         self.mapper = "minimap2"
         if minimap2_index is not None:
@@ -1604,6 +1650,7 @@ class Pipeline:
             batch.append('    "$FASTQ_R1" \\\n')
             batch.append('    "$FASTQ_R2" \\\n')
         batch.append(' > "${SAM}"\n\n')
+        self.__insert_extra_args(batch, 'minimap2 \\\n', extra_args, step_id)
         # check if commands were completed successfully
         batch.append('if [ $? -ne 0 ]; then echo "Error: %s failed."; exit 1; fi\n' % step_id)
         batch.append(
@@ -1623,7 +1670,7 @@ class Pipeline:
         self.batch[step_id].extend(batch)
 
 
-    def HISAT2(self, ref_genome=None, hisat2_index=None, SAM=None, force=False):
+    def HISAT2(self, ref_genome=None, hisat2_index=None, SAM=None, extra_args=None, force=False):
         batch = []
         self.mapper = "HISAT2"
         if hisat2_index is not None:
@@ -1675,6 +1722,7 @@ class Pipeline:
             batch.append('    -1 "$FASTQ_R1" \\\n')
             batch.append('    -2 "$FASTQ_R2" \\\n')
         batch.append('    -S "${SAM}"\n\n')
+        self.__insert_extra_args(batch, 'hisat2 \\\n', extra_args, step_id, repeatable=('--rg',))
         # check if commands were completed successfully
         batch.append('if [ $? -ne 0 ]; then echo "Error: %s failed."; exit 1; fi\n' % step_id)
         batch.append(
@@ -1694,7 +1742,7 @@ class Pipeline:
         self.batch[step_id].extend(batch)
 
 
-    def STAR(self, star_index=None, ref_genome=None, gene_model=None, gtf = None, quantification=False, force=False):
+    def STAR(self, star_index=None, ref_genome=None, gene_model=None, gtf = None, quantification=False, extra_args=None, force=False):
         batch = []
         fn_name = inspect.currentframe().f_code.co_name  # get the name of the function
         step_id = self.__current_step_id + "|" + fn_name
@@ -1760,6 +1808,7 @@ class Pipeline:
         batch.append('    --outSAMtype SAM \\\n')
         batch.append('    --outSAMunmapped Within KeepPairs \\\n')
         batch.append('    --outReadsUnmapped None\n\n')
+        self.__insert_extra_args(batch, 'STAR \\\n', extra_args, step_id)
         # check if commands were completed successfully
         batch.append('if [ $? -ne 0 ]; then echo "Error: %s failed."; exit 1; fi\n' % step_id)
         batch.append('mv "${STAR_outFileNamePrefix}.Aligned.out.sam" "${SAM}"\n')
@@ -1780,7 +1829,7 @@ class Pipeline:
         self.batch[step_id].extend(batch)
 
 
-    def TaxonomyClassifier(self, contig_info, taxonomy_map=None, virus_group_by=None,force=False):
+    def TaxonomyClassifier(self, contig_info, taxonomy_map=None, virus_group_by=None, extra_args=None, force=False):
         batch = []
         fn_name = inspect.currentframe().f_code.co_name  # get the name of the function
         step_id = self.__current_step_id + "|" + fn_name
@@ -1798,6 +1847,7 @@ class Pipeline:
         if virus_group_by:
             batch.append('    --virus_group_by "%s" \\\n' % virus_group_by)
         batch.append('    --contig_info "%s"\n' % contig_info)
+        self.__insert_extra_args(batch, 'TaxonomyClassifier \\\n', extra_args, step_id)
         # check if commands were completed successfully
         batch.append('if [ $? -ne 0 ]; then echo "Error: %s failed."; exit 1; fi\n\n' % step_id)
         batch.append('echo -e "%s\\t$(date +\'%%Y-%%m-%%d %%H:%%M:%%S\')" >> "$my_progress"\n\n' % step_id)
@@ -1850,7 +1900,7 @@ class Pipeline:
         self.batch[step_id].extend(batch)
 
 
-    def Kraken2(self, db_name="standard", kraken2_db_root=None, force=False):
+    def Kraken2(self, db_name="standard", kraken2_db_root=None, extra_args=None, force=False):
         if kraken2_db_root is None:
             sys.exit("Kraken2: kraken2_db_root is not set.\n"
                      "Pass the folder that contains the Kraken2 database, e.g.\n"
@@ -1879,6 +1929,7 @@ class Pipeline:
         batch.append('    --use-names \\\n')
         batch.append('    --gzip-compressed \\\n')
         batch.append('    "${FASTQ_R1}" "${FASTQ_R2}"\n')
+        self.__insert_extra_args(batch, 'kraken2 \\\n', extra_args, step_id)
         # check if commands were completed successfully
         batch.append('if [ $? -ne 0 ]; then echo "Error: %s failed."; exit 1; fi\n\n' % step_id)
         batch.append('echo -e "%s\\t$(date +\'%%Y-%%m-%%d %%H:%%M:%%S\')" >> "$my_progress"\n\n' % step_id)
@@ -1894,7 +1945,7 @@ class Pipeline:
         self.batch[step_id].extend(batch)
 
 
-    def featureCounts(self, gene_model=None, feature="exon", countReadPairs = True, saf = None, gtf = None, force=False):
+    def featureCounts(self, gene_model=None, feature="exon", countReadPairs = True, saf = None, gtf = None, extra_args=None, force=False):
         batch = []
         fn_name = inspect.currentframe().f_code.co_name  # get the name of the function
         step_id = self.__current_step_id + "|" + fn_name
@@ -1954,6 +2005,7 @@ class Pipeline:
         batch.append('    -a "${GENE_MODEL}" \\\n')
         batch.append('    -o "${CountRes}" \\\n')
         batch.append('    "${sorted_BAM}"\n')
+        self.__insert_extra_args(batch, 'featureCounts \\\n', extra_args, step_id)
         # check if commands were completed successfully
         batch.append('if [ $? -ne 0 ]; then echo "Error: %s failed."; exit 1; fi\n\n' % step_id)
         batch.append('gzip -f "${CountRes}"\n')
@@ -1969,7 +2021,7 @@ class Pipeline:
         self.batch[step_id].extend(batch)
 
 
-    def depth_by_pos(self, min_MAPQ=1, force=False):
+    def depth_by_pos(self, min_MAPQ=1, extra_args=None, force=False):
         batch = []
         fn_name = inspect.currentframe().f_code.co_name  # get the name of the function
         step_id = self.__current_step_id + "|" + fn_name
@@ -1983,6 +2035,7 @@ class Pipeline:
         batch.append('    -q %d  \\\n' % min_MAPQ)
         batch.append('    "${sorted_BAM}" \\\n')
         batch.append(' | gzip > "${BAM}_depth.txt.gz"\n')
+        self.__insert_extra_args(batch, 'samtools depth \\\n', extra_args, step_id)
         # check if commands were completed successfully
         batch.append('if [ $? -ne 0 ]; then echo "Error: %s failed."; exit 1; fi\n\n' % step_id)
         batch.append('echo -e "%s\\t$(date +\'%%Y-%%m-%%d %%H:%%M:%%S\')" >> "$my_progress"\n\n' % step_id)
@@ -1996,7 +2049,7 @@ class Pipeline:
         self.batch[step_id].extend(batch)
 
 
-    def BAM2BigWig(self, force=False):
+    def BAM2BigWig(self, extra_args=None, force=False):
         batch = []
         fn_name = inspect.currentframe().f_code.co_name # get the name of the function
         step_id = self.__current_step_id + "|" + fn_name
@@ -2021,6 +2074,7 @@ class Pipeline:
         batch.append('   --normalizeUsing None \\\n')
         batch.append('   --minMappingQuality 1 \\\n')
         batch.append('   --skipNonCoveredRegions\n')
+        self.__insert_extra_args(batch, 'bamCoverage \\\n', extra_args, step_id)
 
         # check if commands were completed successfully
         batch.append('if [ $? -ne 0 ]; then echo "Error: %s failed."; exit 1; fi\n\n' % step_id)
@@ -2035,7 +2089,7 @@ class Pipeline:
         self.batch[step_id].extend(batch)
 
 
-    def unmapped_to_fastq(self):
+    def unmapped_to_fastq(self, extra_args=None):
         batch = []
         fn_name = inspect.currentframe().f_code.co_name  # get the name of the function
         step_id = self.__current_step_id + "|" + fn_name
@@ -2055,6 +2109,7 @@ class Pipeline:
         batch.append('    -f 0x4 \\\n')  # 0x4	UNMAP	segment unmapped
         batch.append('    -@ %d \\\n' % self.threadN)
         batch.append('    "$BAM"\n')
+        self.__insert_extra_args(batch, 'samtools fastq \\\n', extra_args, step_id)
         batch.append('if [ $? -ne 0 ]; then echo "Error: %s - samtools fastq failed."; exit 1; fi\n\n' % step_id)
         batch.append('echo -e "%s\\t$(date +\'%%Y-%%m-%%d %%H:%%M:%%S\')" >> "$my_progress"\n\n' % step_id)
         batch.append('conda deactivate\n\n\n')
@@ -2110,7 +2165,7 @@ class Pipeline:
         self.FASTQ_ready_for_contigs.add(contig_name)
 
 
-    def SPAdes(self, contig, mode="rnaviral", contig_name=None, force=False):
+    def SPAdes(self, contig, mode="rnaviral", contig_name=None, extra_args=None, force=False):
         batch = []
         if mode not in ("rna","rnaviral"):
             mode = "general_careful"
@@ -2142,6 +2197,7 @@ class Pipeline:
         batch.append('    -2 "$FASTQ_CONTIG_R2" \\\n')
         batch.append('    --threads %d \\\n' % self.threadN)
         batch.append('    --memory 64\n')
+        self.__insert_extra_args(batch, 'spades.py \\\n', extra_args, step_id)
         batch.append('if [ $? -ne 0 ]; then echo "Error: %s - PE failed."; exit 1; fi\n\n' % step_id)
         batch.append('echo -e "%s\\t$(date +\'%%Y-%%m-%%d %%H:%%M:%%S\')" >> "$my_progress"\n\n' % step_id)
         batch.append('conda deactivate\n\n\n')
@@ -2154,7 +2210,7 @@ class Pipeline:
         self.batch[step_id].extend(batch)
 
 
-    def GATK4_Mutect2(self, ref_genome=None, genome_fasta=None, mode="DNA", no_filter=False, split_multi_allelic=False,force=False):
+    def GATK4_Mutect2(self, ref_genome=None, genome_fasta=None, mode="DNA", no_filter=False, split_multi_allelic=False, extra_args=None, force=False):
         batch = []
         fn_name = inspect.currentframe().f_code.co_name  # get the name of the function
         self.caller = "GATK4_Mutect2"
@@ -2188,6 +2244,7 @@ class Pipeline:
             batch.append('    --max-mnp-distance 0 \\\n') # Prevents MNPs from being grouped, ensential for RNA-seq
             batch.append('    --disable-read-filter MateOnSameContigOrNoMappedMateReadFilter \\\n') # Prevents loss of useful RNA-seq reads that are properly mapped but don’t conform to DNA-seq pairing expectations
         batch.append('    --output "${VCF}"\n\n')
+        self.__insert_extra_args(batch, 'gatk Mutect2 \\\n', extra_args, step_id)
         # check if commands were completed successfully
         batch.append('if [ $? -ne 0 ]; then echo "Error: %s|caller failed."; exit 1; fi\n' % step_id)
         # filter
@@ -2220,7 +2277,7 @@ class Pipeline:
         self.batch[step_id].extend(batch)
 
 
-    def ViraQuant(self, virus_list=None, top_n=10, scan_by=None, force=False):
+    def ViraQuant(self, virus_list=None, top_n=10, scan_by=None, extra_args=None, force=False):
         batch = []
         surfix = ""
         if scan_by:
@@ -2246,6 +2303,7 @@ class Pipeline:
         else:
             batch.append(f'    --top-n {top_n} \\\n')
         batch.append(f'    --out "${{sorted_BAM%.*.*}}.ViraQuant{surfix}.tsv"\n')
+        self.__insert_extra_args(batch, 'ViraQuant \\\n', extra_args, step_id)
         # check if commands were completed successfully
         batch.append('if [ $? -ne 0 ]; then echo "Error: %s failed."; exit 1; fi\n\n' % step_id)
         batch.append('echo -e "%s\\t$(date +\'%%Y-%%m-%%d %%H:%%M:%%S\')" >> "$my_progress"\n\n' % step_id)
@@ -2259,7 +2317,7 @@ class Pipeline:
         self.batch[step_id].extend(batch)
 
 
-    def convert_ViraQuant_scan_to_ncbitaxon(self, taxonomy_map, depth_summary="max", force=False):
+    def convert_ViraQuant_scan_to_ncbitaxon(self, taxonomy_map, depth_summary="max", extra_args=None, force=False):
         # Group a ViraQuant scan TSV into ncbitaxon-level rows using an
         # accession-keyed taxonomy map. This is an opt-in step: call it after a
         # scan-mode ViraQuant run (p.ViraQuant(scan_by=...)). The converter is
@@ -2280,6 +2338,7 @@ class Pipeline:
         if depth_summary:
             batch.append(f'    --depth-summary {depth_summary} \\\n')
         batch.append('    --output "${sorted_BAM%.*.*}.ViraQuant_scan_ncbitaxon.tsv"\n')
+        self.__insert_extra_args(batch, 'convert-ViraQuant-scan-to-ncbitaxon \\\n', extra_args, step_id)
         # check if commands were completed successfully
         batch.append('if [ $? -ne 0 ]; then echo "Error: %s failed."; exit 1; fi\n\n' % step_id)
         batch.append('echo -e "%s\\t$(date +\'%%Y-%%m-%%d %%H:%%M:%%S\')" >> "$my_progress"\n\n' % step_id)
