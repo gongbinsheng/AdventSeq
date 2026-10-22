@@ -1,6 +1,6 @@
 [project]
 name = "AdventSeq"
-version = "3.3.2"
+version = "3.3.3"
 description = "AdventSeq: a comprehensive bioinformatics pipeline for detection of adventitious viral agents with RNA-seq"
 readme = "README.md"
 requires-python = ">=3.12"
