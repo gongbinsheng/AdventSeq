@@ -1804,7 +1804,7 @@ class Pipeline:
         if effective_gtf:
             batch.append('    --sjdbGTFfile "$GTF" \\\n')
         batch.append('    --outFileNamePrefix "${STAR_outFileNamePrefix}." \\\n')
-        batch.append('    --outSAMattrRGline "ID:$SID\tSM:$SID\tLB:$SID\tPL:%s" \\\n' % (self.platform,))
+        batch.append(f'    --outSAMattrRGline ID:"$SID"\tSM:"$SID"\tLB:"$SID"\tPL:"{self.platform}" \\\n')
         batch.append('    --outSAMtype SAM \\\n')
         batch.append('    --outSAMunmapped Within KeepPairs \\\n')
         batch.append('    --outReadsUnmapped None\n\n')
