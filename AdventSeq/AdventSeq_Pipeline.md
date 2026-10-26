@@ -199,6 +199,7 @@ If you change `ref_genome` with `set_ref_genome()`, the module clears any curren
 **Format conversion and BAM utilities**
 
 - `SAM2BAM(force=False)` — Converts `SAM` to an unsorted BAM file and removes the SAM file afterwards.
+- `filter_BAM(unmapped=True, secondary=True, supplementary=True, filter_options=None, input="BAM", force=False)` — Filters alignments with `samtools view` into `<name>.filtered.unsorted.bam` and points `BAM` at it. By default drops unmapped (`0x4`), secondary (`0x100`) and supplementary (`0x800`) records (`-F 2308`); turn each off with its flag. If `filter_options` is given (e.g. `"-F 2308 -q 10"` or a list of tokens), it is used verbatim instead of the default flags. `input="BAM"` reads `BAM` (call after `SAM2BAM()`); `input="SAM"` reads `SAM` directly from an aligner and keeps the SAM file. Call before `sort_BAM()`.
 - `sort_BAM(force=False, by_qname=False)` — Sorts BAM by coordinate or query name. Coordinate-sorted BAMs are indexed automatically.
 - `BAM_stat(force=False)` — Writes a stats report combining selected `samtools view` counts, `samtools flagstat`, and `samtools stats`.
 - `BAM_not_in_BED(region, force=False)` — Extracts alignments outside a BED-defined region and creates coverage BED files at multiple coverage thresholds.
@@ -293,7 +294,7 @@ Several methods depend on variables created by earlier steps:
 
 - `FASTQ` or `FASTQ_R1` and `FASTQ_R2` — Produced or updated by `merge_lanes()`, `fastp()`, and host-read removal steps.
 - `SAM` — Produced by aligners like `BWA_MEM()`, `Bowtie2()`, `minimap2()`, `HISAT2()`, and `STAR()`.
-- `BAM` — Produced by `SAM2BAM()`.
+- `BAM` — Produced by `SAM2BAM()`; replaced by the filtered BAM after `filter_BAM()`.
 - `sorted_BAM` — Produced by `sort_BAM()`.
 - `CountRes` — Produced by `featureCounts()` and consumed by `BAM2BigWig()`.
 - `mapper` — Set by aligner methods and reused in downstream filenames.

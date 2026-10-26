@@ -1369,6 +1369,76 @@ class Pipeline:
         self.batch[step_id].extend(batch)
 
 
+    def filter_BAM(self, unmapped=True, secondary=True, supplementary=True, filter_options=None, input="BAM", force=False):
+        """Filter alignments with `samtools view` into a new unsorted BAM and point `BAM` at it.
+
+        By default removes unmapped (0x4), secondary (0x100) and supplementary (0x800) records.
+        If `filter_options` is given (a string such as "-F 2308 -q 10", or a list of tokens), it is
+        used verbatim instead of the default flags, and `unmapped`/`secondary`/`supplementary` are ignored.
+        `input` is "BAM" (read `$BAM`, e.g. after SAM2BAM) or "SAM" (read `$SAM` straight from an aligner).
+        """
+        batch = []
+        fn_name = inspect.currentframe().f_code.co_name  # get the name of the function
+        step_id = self.__current_step_id + "|" + fn_name
+        # filter options
+        if filter_options is not None:
+            if isinstance(filter_options, (list, tuple)):
+                tokens = [str(a).strip() for a in filter_options if str(a).strip()]
+                filter_text = " ".join(tokens)
+            else:
+                filter_text = str(filter_options).strip()
+                try:
+                    tokens = shlex.split(filter_text)
+                except ValueError as e:
+                    sys.exit(f"ERROR: {step_id}: could not parse filter_options {filter_text!r}: {e}\n")
+            if not tokens:
+                sys.exit(f"ERROR: {step_id}: filter_options is empty.\n")
+        else:
+            flag = 0
+            if unmapped:
+                flag += 4     # 0x4    UNMAP          segment unmapped
+            if secondary:
+                flag += 256   # 0x100  SECONDARY      secondary alignment
+            if supplementary:
+                flag += 2048  # 0x800  SUPPLEMENTARY  supplementary alignment
+            if flag == 0:
+                sys.exit(f"ERROR: {step_id}: nothing to filter; enable unmapped/secondary/supplementary or give filter_options.\n")
+            filter_text = "-F %d" % flag
+        # input / output
+        if str(input).upper() == "BAM":
+            in_file = "${BAM}"
+            out_file = "${BAM%.*.*}.filtered.unsorted.bam"
+        elif str(input).upper() == "SAM":
+            in_file = "${SAM}"
+            out_file = "${SAM%.*}.filtered.unsorted.bam"
+        else:
+            sys.exit(f"ERROR: {step_id}: input must be 'BAM' or 'SAM', got {input!r}.\n")
+        batch.append(f'{"#" * (len(step_id) + 8)}\n')
+        batch.append('### %s ###\n' % step_id)
+        batch.append(f'{"#" * (len(step_id) + 8)}\n')
+        batch.append('conda activate %s\n\n' % self.envs4steps[fn_name])
+        self.required_conda_envs.add(self.envs4steps[fn_name])  # add env name to required env list
+        # commands
+        batch.append('samtools view \\\n')
+        batch.append('    -b \\\n')
+        batch.append('    %s \\\n' % filter_text)
+        batch.append('    -@ %d \\\n' % self.threadN)
+        batch.append('    -o "%s" \\\n' % out_file)
+        batch.append('    "%s"\n' % in_file)
+        batch.append('if [ $? -ne 0 ]; then echo "Error: %s - samtools view failed."; exit 1; fi\n' % step_id)
+        # set BAM after the command, so it stays active (uncommented) when this step is skipped
+        batch.append('BAM="%s"\n' % out_file)
+        batch.append('echo -e "%s\\t$(date +\'%%Y-%%m-%%d %%H:%%M:%%S\')" >> "$my_progress"\n\n' % step_id)
+        batch.append('conda deactivate\n\n\n')
+        # test if this step has already been completed
+        self.set_current_step_id(step_id) # filtering changes the data, set current step id
+        if step_id in self.progress and not force:
+            batch = self.__comment_lines(batch)
+        else:
+            self.is_completed = False
+        self.batch[step_id].extend(batch)
+
+
     def BAM_stat(self, force=False):
         batch = []
         fn_name = inspect.currentframe().f_code.co_name  # get the name of the function
