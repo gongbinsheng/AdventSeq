@@ -10,7 +10,7 @@ fastp:      {steps: [fastp],      package: fastp,      version_cmd: "fastp --ver
 BWA:        {steps: [BWA_MEM],    package: bwa,        version_cmd: "bwa 2>&1 | grep -i '^Version' | sed -E 's/^[Vv]ersion:[[:space:]]*//'"}   # no flag, stderr
 Kraken2:    {steps: [Kraken2],    package: kraken2,    version_cmd: "kraken2 --version | head -n1 | sed -E 's/^.*[Vv]ersion[[:space:]]*//'"}
 samtools:   {steps: [samtools, sort_SAM, sort_BAM, SAM2BAM, filter_BAM, BAM_stat, unmapped_to_fastq,
-                     remove_read_pairs_mapped_to_host, depth_by_pos],
+                     remove_read_pairs_mapped_to, remove_read_pairs_mapped_to_host, depth_by_pos],
              package: samtools,   version_cmd: "samtools --version | head -n1 | sed -E 's/^samtools[[:space:]]*//'"}
 Subread:    {steps: [featureCounts], package: subread, version_cmd: "featureCounts -v 2>&1"}  # stderr
 AdventSeq:  {steps: [TaxonomyClassifier, ViraQuant, convert_ViraQuant_scan_to_ncbitaxon], package: null, version_cmd: "pip show AdventSeq 2>/dev/null | grep -i '^Version' | sed -E 's/^[Vv]ersion:[[:space:]]*//'"}   # this package's own env

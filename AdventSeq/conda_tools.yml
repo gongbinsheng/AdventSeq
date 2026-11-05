@@ -23,7 +23,7 @@ minimap2:   {steps: [minimap2],   package: minimap2,   version_cmd: "minimap2 --
 HISAT2:     {steps: [HISAT2],     package: hisat2,     version_cmd: "hisat2 --version | head -n1 | sed -E 's/^.*[Vv]ersion[[:space:]]*//'"}
 STAR:       {steps: [STAR],       package: star,       version_cmd: "STAR --version"}
 samtools:   {steps: [samtools, sort_SAM, sort_BAM, SAM2BAM, filter_BAM, BAM_stat, unmapped_to_fastq,
-                     remove_read_pairs_mapped_to_host, depth_by_pos,
+                     remove_read_pairs_mapped_to, remove_read_pairs_mapped_to_host, depth_by_pos,
                      __BAM_to_proper_paired_FASTQ_of_a_contig],
              package: samtools,   version_cmd: "samtools --version | head -n1 | sed -E 's/^samtools[[:space:]]*//'"}
 bedtools:   {steps: [BAM_not_in_BED], package: bedtools, version_cmd: "bedtools --version | sed -E 's/^bedtools v//'"}

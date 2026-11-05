@@ -591,6 +591,7 @@ class Pipeline:
 
         self.RG_is_added = False
         self.host_read_pairs_removed = False
+        self.read_pairs_removed_from = []  # targets passed to remove_read_pairs_mapped_to, in order
         self.FASTQ_ready_for_contigs = set()
 
 
@@ -1932,14 +1933,38 @@ class Pipeline:
 
 
     def remove_read_pairs_mapped_to_host(self, force=False):
+        """Backward-compatible alias for ``remove_read_pairs_mapped_to("host")``."""
+        return self.remove_read_pairs_mapped_to("host", force=force)
+
+
+    def remove_read_pairs_mapped_to(self, target="host", force=False):
+        """Keep only read pairs where neither mate mapped to the current ``BAM``'s reference.
+
+        ``target`` labels the reference the reads were just mapped to (e.g. "host",
+        "vero"). It names the step (``remove_read_pairs_mapped_to_<target>``) and
+        the output FASTQs (``${BAM%.*.*}.unmapped2<target>.R1/R2.fastq.gz``), and
+        resets ``SID``/``FASTQ_R1``/``FASTQ_R2`` to them for downstream steps.
+        """
+        if not isinstance(target, str) or not re.fullmatch(r"[A-Za-z0-9_-]+", target):
+            sys.exit(f"remove_read_pairs_mapped_to: invalid target {target!r}.\n"
+                     "Use only letters, digits, '_' or '-' (no dots, spaces or slashes), "
+                     "e.g. target=\"vero\".\n")
         batch = []
-        fn_name = inspect.currentframe().f_code.co_name  # get the name of the function
+        fn_name = "remove_read_pairs_mapped_to_%s" % target
         step_id = self.__current_step_id + "|" + fn_name
+        # one conda env serves every target; accept the legacy key for old conda_tools.yml files
+        env_keys = ("remove_read_pairs_mapped_to", "remove_read_pairs_mapped_to_host", "samtools")
+        env_key = next((k for k in env_keys if k in self.envs4steps), env_keys[0])
+        try:
+            env = self.envs4steps[env_key]
+        except KeyError:
+            sys.exit("remove_read_pairs_mapped_to: no conda env assigned. Add "
+                     "'remove_read_pairs_mapped_to' to the samtools env's steps in conda_tools.yml.\n")
         batch.append(f'{"#" * (len(step_id) + 8)}\n')
         batch.append('### %s ###\n' % step_id)
         batch.append(f'{"#" * (len(step_id) + 8)}\n')
-        batch.append('conda activate %s\n\n' % self.envs4steps[fn_name])
-        self.required_conda_envs.add(self.envs4steps[fn_name])  # add env name to required env list
+        batch.append('conda activate %s\n\n' % env)
+        self.required_conda_envs.add(env)  # add env name to required env list
         # commands
         batch.append('samtools view -b -f 12 -F 2304 -@ %d "${BAM}" \\\n' % self.threadN)
         # -f 12: Ensures that at least one read in the pair is unmapped (READ1_UNMAPPED or READ2_UNMAPPED)
@@ -1948,16 +1973,21 @@ class Pipeline:
         # -F 2048 + 256 = 2304, so we use -F 2304 to exclude both secondary and supplementary alignments
         batch.append(' | samtools sort -n -@ %d \\\n' % self.threadN)
         batch.append(' | samtools fastq -n -@ %d \\\n' % self.threadN)
-        batch.append('    -1 "${BAM%.*.*}.unmapped2host.R1.fastq.gz" \\\n')
-        batch.append('    -2 "${BAM%.*.*}.unmapped2host.R2.fastq.gz" \\\n')
-        batch.append('    -0 "${BAM%.*.*}.unmapped2host.single.fastq.gz" \\\n')
-        batch.append('    -s "${BAM%.*.*}.unmapped2host.orphan.fastq.gz"\n')
+        suffix = "unmapped2%s" % target
+        batch.append('    -1 "${BAM%%.*.*}.%s.R1.fastq.gz" \\\n' % suffix)
+        batch.append('    -2 "${BAM%%.*.*}.%s.R2.fastq.gz" \\\n' % suffix)
+        batch.append('    -0 "${BAM%%.*.*}.%s.single.fastq.gz" \\\n' % suffix)
+        batch.append('    -s "${BAM%%.*.*}.%s.orphan.fastq.gz"\n' % suffix)
         # check if commands were completed successfully
         batch.append('if [ $? -ne 0 ]; then echo "Error: %s failed."; exit 1; fi\n\n' % step_id)
         batch.append('echo -e "%s\\t$(date +\'%%Y-%%m-%%d %%H:%%M:%%S\')" >> "$my_progress"\n\n' % step_id)
         batch.append('conda deactivate\n\n')
-        self.host_read_pairs_removed = True
-        batch.append('SID="${BAM%.*.*}.unmapped2host"\n')
+        if target == "host":
+            self.host_read_pairs_removed = True
+        if not hasattr(self, "read_pairs_removed_from"):
+            self.read_pairs_removed_from = []
+        self.read_pairs_removed_from.append(target)
+        batch.append('SID="${BAM%%.*.*}.%s"\n' % suffix)
         batch.append('FASTQ_R1="${SID}.R1.fastq.gz"\n')
         batch.append('FASTQ_R2="${SID}.R2.fastq.gz"\n')
         batch.append('\n')

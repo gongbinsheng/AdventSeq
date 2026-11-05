@@ -219,7 +219,8 @@ All aligners require FASTQ input, set `mapper`, write runtime information into `
 
 **Host removal and taxonomic analysis**
 
-- `remove_read_pairs_mapped_to_host(force=False)` — Uses samtools to extract paired reads that remain unmapped to the host from `BAM`, writes new FASTQ files, and resets `SID`, `FASTQ_R1`, and `FASTQ_R2` for downstream classification.
+- `remove_read_pairs_mapped_to(target="host", force=False)` — Uses samtools to extract read pairs where neither mate mapped to the reference of the current `BAM`, writes them to `${BAM%.*.*}.unmapped2<target>.{R1,R2,single,orphan}.fastq.gz`, and resets `SID`, `FASTQ_R1`, and `FASTQ_R2` for downstream steps. `target` is a label for that reference (letters, digits, `_`, `-`), e.g. `"host"` or `"vero"`; the step ID is `remove_read_pairs_mapped_to_<target>`. Calls can be chained, e.g. map to hg38 → `remove_read_pairs_mapped_to("host")` → map to the Vero genome → `remove_read_pairs_mapped_to("vero")`.
+- `remove_read_pairs_mapped_to_host(force=False)` — Backward-compatible alias for `remove_read_pairs_mapped_to("host")`; produces the same step ID and `*.unmapped2host.*` files as before.
 - `Kraken2(db_name="standard", kraken2_db_root=None, force=False)` — Runs paired-end Kraken2 classification against the database `<kraken2_db_root>/<db_name>`. `kraken2_db_root` is required.
 - `TaxonomyClassifier(contig_info, taxonomy_map=None, virus_group_by=None, force=False)` — Runs the `TaxonomyClassifier` console command against the current BAM.
 - `ViraQuant(virus_list=None, top_n=10, scan_by=None, force=False)` — Runs the local `ViraQuant.py` helper against `sorted_BAM`.
