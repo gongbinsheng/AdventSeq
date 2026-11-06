@@ -27,11 +27,16 @@ File discovery is robust to two layouts:
   * per-sample folders  -- ``<results_dir>/<library_ID>/<library_ID>.*``
   * flattened per-type  -- ``<results_dir>/<type>/<library_ID>.*``
 Files are matched by basename prefix ``<library_ID>.`` (the trailing dot prevents
-``1_S1`` matching ``10_S10``).
+``1_S1`` matching ``10_S10``; the longest matching ID wins, so IDs may contain dots).
 
-The viral reference names used for the scan step and the targeted virus lists are
-*not* hard-coded; they are supplied via ``--scan-ref`` and ``--targeted-refs`` and
-matched against the alignment ``ref_genome`` embedded in the file names.
+Only that prefix and the file-type suffix are fixed; the middle of a name records
+the processing chain and is parsed, not assumed (see "File-name parsing" below).
+The host aligner/reference come from the featureCounts file names, and the virus
+references are the ``--scan-ref`` / ``--targeted-refs`` names. Reference names may
+contain dots, and any extra removal steps between host removal and virus mapping
+(e.g. ``remove_read_pairs_mapped_to("vero")``) are recognised. When the results
+hold several such chains, e.g. some sets with host removal only and some with an
+extra vero removal step, each chain is collected into its own sub-folder.
 """
 
 import os
@@ -41,7 +46,7 @@ import gzip
 import json
 import html
 from argparse import ArgumentParser
-from collections import OrderedDict, defaultdict
+from collections import OrderedDict, defaultdict, namedtuple
 from pathlib import Path
 
 import yaml
@@ -151,76 +156,332 @@ def read_sample_metadata(sra_path, sheet):
 
 
 def index_result_files(results_dir):
-    """Walk results_dir once and return a list of (basename, full_path)."""
+    """Walk results_dir once and return a sorted list of (basename, full_path)."""
     files = []
     for root, _dirs, names in os.walk(results_dir):
         for name in names:
             files.append((name, os.path.join(root, name)))
+    files.sort()  # deterministic order, independent of the file system
     return files
 
 
-def files_for_sample(file_index, library_id):
-    """Return files whose basename starts with '<library_id>.'."""
-    prefix = library_id + "."
-    return [(n, p) for (n, p) in file_index if n.startswith(prefix)]
+def group_files_by_sample(file_index, samples):
+    """Return {library_ID: [(basename, path), ...]} for every sample.
+
+    A file belongs to the *longest* library ID that, followed by '.', prefixes its
+    basename. The trailing dot keeps ``1_S1`` from matching ``10_S10``, and taking
+    the longest match keeps ``S1`` from claiming the files of ``S1.rep2`` (library
+    IDs may contain dots).
+    """
+    libs = set(samples)
+    by_sample = OrderedDict((lib, []) for lib in samples)
+    for name, path in file_index:
+        best = None
+        i = name.find(".")
+        while i != -1:
+            if name[:i] in libs:
+                best = name[:i]
+            i = name.find(".", i + 1)
+        if best is not None:
+            by_sample[best].append((name, path))
+    return by_sample
 
 
 # ---------------------------------------------------------------------------
-# Mapper / reference detection from file names
+# File-name parsing: <library_ID>.<middle>.<fixed suffix>
 # ---------------------------------------------------------------------------
+#
+# Only the leading "<library_ID>." and the trailing suffix of a file name are
+# fixed. The middle records the processing chain and varies between runs, e.g.
+#
+#   lib.bwa_mem.hg38.unmapped2host.bwa_mem.RVDBv29.unsorted.read_count.txt
+#   lib.bwa_mem.GRCh38.unmapped2host.bwa_mem.mChlSab1.0.hap1.unmapped2vero.bowtie2.RVDBv29.ViraQuant_scan.tsv
+#
+# The pipeline builds it from these pieces (AdventSeq_Pipeline.py):
+#   * each alignment appends ".<mapper>.<ref_genome>" -- mapper is one of
+#     KNOWN_MAPPERS; ref_genome may itself contain dots ("mChlSab1.0.hap1");
+#   * remove_read_pairs_mapped_to(<target>) appends ".unmapped2<target>" and
+#     restarts the chain from there (target never contains dots);
+#   * filter_BAM may append ".filtered" after a ref.
+# So a reference is matched as a dot-separated *token sequence* directly
+# preceded by a mapper token; nothing about the host reference or the steps in
+# between is hard-coded.
 
-# host-stage files:  <lib>.<host_mapper>.hg38.<...>
-_HOST_RE = re.compile(r"^[^.]+\.(?P<host>[^.]+)\.hg38\.")
-# virus-stage alignment outputs: <lib>.<host_mapper>.hg38.unmapped2host.<virus_mapper>.<ref>.<...>
-_VIRUS_RE = re.compile(
-    r"^[^.]+\.(?P<host>[^.]+)\.hg38\.unmapped2host\.(?P<virus>[^.]+)\.(?P<ref>[^.]+)\."
+# Values of Pipeline.mapper (bwa_mem / bowtie2 / minimap2 / HISAT2 / STAR).
+KNOWN_MAPPERS = frozenset({"bwa_mem", "bowtie2", "minimap2", "HISAT2", "STAR"})
+_UNMAPPED_RE = re.compile(r"^unmapped2(?P<target>[A-Za-z0-9_-]+)$")
+# Tokens a step may append after a ref without starting a new stage.
+_STAGE_MARKERS = ("filtered",)
+
+# kind -> accepted suffixes. Only these files are parsed; everything else (FASTQs,
+# BAMs, logs, the .unmapped2<target>.R1.fastq.gz of read-pair removal, ...) is
+# ignored, so it can never contribute a spurious mapper or reference.
+_KIND_SUFFIXES = (
+    ("read_count", (".unsorted.read_count.txt", ".unsorted.read_count.txt.gz")),
+    ("vq_scan_ncbitaxon", (".ViraQuant_scan_ncbitaxon.tsv",
+                           ".ViraQuant_scan_ncbitaxon.tsv.gz")),
+    ("vq_scan", (".ViraQuant_scan.tsv", ".ViraQuant_scan.tsv.gz")),
+    ("vq_targeted", (".ViraQuant.tsv", ".ViraQuant.tsv.gz")),
+    ("kraken", (".Kraken2_viral.report",)),
+    ("fc_count_reads", (".count_reads.tsv.gz", ".count_reads.tsv")),
+    ("fc_count_pairs", (".count_pairs.tsv.gz", ".count_pairs.tsv")),
 )
-# Only these suffixes are genuine virus-alignment outputs. Other files share the
-# "...unmapped2host.<token>.<token>..." shape but are NOT virus alignments, e.g.
-# remove_read_pairs_mapped_to_host FASTQs (.unmapped2host.R1/R2/single/orphan.fastq.gz)
-# and Kraken2 (.unmapped2host.Kraken2_viral.report); they must not contribute a
-# spurious virus_mapper during auto-detection.
-_VIRUS_OUTPUT_SUFFIXES = (
-    ".unsorted.read_count.txt",
-    ".ViraQuant.tsv", ".ViraQuant.tsv.gz",
-    ".ViraQuant_scan.tsv", ".ViraQuant_scan.tsv.gz",
-    ".ViraQuant_scan_ncbitaxon.tsv", ".ViraQuant_scan_ncbitaxon.tsv.gz",
-)
+VIRUS_KINDS = ("read_count", "vq_scan_ncbitaxon", "vq_scan", "vq_targeted")
+
+ParsedFile = namedtuple("ParsedFile", "name path kind tokens")
+Segment = namedtuple("Segment", "mapper ref target")
+
+# What to collect for one processing chain. host_* / virus_mapper of None match
+# anything; chain is the tuple of (target, ref) removal steps after the host one.
+Selection = namedtuple("Selection",
+                       "host_mapper host_ref virus_mapper chain tag mappers")
 
 
-def _select_token(name, present, requested, what):
-    """Auto-select a mapper when exactly one is present, else honour the request."""
+def parse_file_name(name, lib):
+    """Classify a sample file by suffix; return (kind, tokens) or None.
+
+    tokens are the dot-separated pieces between "<lib>." and the suffix.
+    """
+    for kind, suffixes in _KIND_SUFFIXES:
+        for suffix in suffixes:
+            if name.endswith(suffix):
+                middle = name[len(lib) + 1:len(name) - len(suffix)]
+                tokens = middle.split(".") if middle else []
+                return kind, tokens
+    return None
+
+
+def parse_sample_files(by_sample):
+    """{lib: [(name, path)]} -> {lib: [ParsedFile]} (unrecognized files dropped)."""
+    parsed = OrderedDict()
+    for lib, files in by_sample.items():
+        out = []
+        for name, path in files:
+            hit = parse_file_name(name, lib)
+            if hit is not None:
+                out.append(ParsedFile(name, path, hit[0], hit[1]))
+        parsed[lib] = out
+    return parsed
+
+
+def _strip_markers(tokens):
+    tokens = list(tokens)
+    while tokens and tokens[-1] in _STAGE_MARKERS:
+        tokens.pop()
+    return tokens
+
+
+def parse_chain(tokens, mappers):
+    """Split chain tokens into Segments at each "unmapped2<target>" token.
+
+    Each segment is "<mapper>.<ref...>[.filtered]" followed by its
+    "unmapped2<target>" token; trailing tokens with no unmapped2 token form a
+    final segment with target None.
+    """
+    segments = []
+    cur = []
+    for tok in tokens:
+        m = _UNMAPPED_RE.match(tok)
+        if m is None:
+            cur.append(tok)
+            continue
+        segments.append(_make_segment(cur, m.group("target"), mappers))
+        cur = []
+    if cur:
+        segments.append(_make_segment(cur, None, mappers))
+    return segments
+
+
+def _make_segment(tokens, target, mappers):
+    if tokens and tokens[0] in mappers:
+        mapper, ref_tokens = tokens[0], tokens[1:]
+    else:
+        mapper, ref_tokens = None, tokens
+    return Segment(mapper, ".".join(_strip_markers(ref_tokens)), target)
+
+
+def find_stage(tokens, ref, mappers):
+    """Index of the mapper token of the virus stage "<mapper>.<ref...>", or None.
+
+    The rightmost match wins, and no "unmapped2*" token may follow it (that would
+    make it an upstream removal stage, not the final alignment). Because a mapper
+    token must directly precede the ref, a short ref such as "hap1" cannot match
+    the tail of a dotted ref like "mChlSab1.0.hap1".
+    """
+    ref_tokens = ref.split(".")
+    n = len(ref_tokens)
+    for start in range(len(tokens) - n - 1, -1, -1):
+        if tokens[start] in mappers and tokens[start + 1:start + 1 + n] == ref_tokens:
+            if any(_UNMAPPED_RE.match(t) for t in tokens[start + 1 + n:]):
+                return None
+            return start
+    return None
+
+
+def host_stage(tokens, mappers):
+    """(mapper, ref) of a featureCounts file: "...<mapper>.<ref...>.featureCounts.<x>".
+
+    featureCounts output is "${SID}.${mapper}.${ref_genome}.featureCounts.
+    <gene_model>_<feature>", so the host ref is everything between the last
+    mapper token and the "featureCounts" token.
+    """
+    if "featureCounts" not in tokens:
+        return None
+    fc = len(tokens) - 1 - tokens[::-1].index("featureCounts")
+    for j in range(fc - 1, -1, -1):
+        if tokens[j] in mappers:
+            ref = ".".join(tokens[j + 1:fc])
+            return (tokens[j], ref) if ref else None
+    return None
+
+
+def _matches_host(seg, host_mapper, host_ref):
+    return ((host_mapper is None or seg.mapper == host_mapper)
+            and (host_ref is None or seg.ref == host_ref))
+
+
+def chain_key(segments, host_mapper, host_ref):
+    """Removal steps other than the host one, as a tuple of (target, ref).
+
+    Returns None when a host is known but no segment matches it (the file comes
+    from a different host run). With no host known, the first segment is the host.
+    """
+    if not segments:
+        return ()
+    if host_mapper is None and host_ref is None:
+        host_i = 0
+    else:
+        host_i = next((i for i, s in enumerate(segments)
+                       if _matches_host(s, host_mapper, host_ref)), None)
+        if host_i is None:
+            return None
+    return tuple((s.target, s.ref) for i, s in enumerate(segments) if i != host_i)
+
+
+def virus_hit(pf, ref, sel_host, mappers):
+    """(virus_mapper, chain) of a virus-output file for ref, or None."""
+    start = find_stage(pf.tokens, ref, mappers)
+    if start is None:
+        return None
+    key = chain_key(parse_chain(pf.tokens[:start], mappers), *sel_host)
+    if key is None:
+        return None
+    return pf.tokens[start], key
+
+
+def chain_tags(keys):
+    """Readable, unique folder names for chain keys ("host_only", "rm_vero", ...)."""
+    def short(key):
+        if not key:
+            return "host_only"
+        return "rm_" + "+".join(t or r for t, r in key)
+
+    def long_(key):
+        if not key:
+            return "host_only"
+        return "rm_" + "+".join("%s-%s" % (t, r) if t else r for t, r in key)
+
+    shorts = [short(k) for k in keys]
+    tags = OrderedDict()
+    used = set()
+    for key, s in zip(keys, shorts):
+        tag = s if shorts.count(s) == 1 else long_(key)
+        base, i = tag, 2
+        while tag in used:
+            tag = "%s_%d" % (base, i)
+            i += 1
+        used.add(tag)
+        tags[key] = tag
+    return tags
+
+
+def describe_chain(key):
+    if not key:
+        return "host removal only"
+    return "host removal, then " + ", then ".join(
+        "%s (%s)" % (r, "unmapped2%s" % t if t else "?") for t, r in key)
+
+
+def _select_token(present, requested, what, context=""):
+    """Auto-select a value when exactly one is present, else honour the request."""
+    where = (" %s" % context) if context else ""
     if requested:
         if requested not in present:
-            eprint("Warning: requested %s '%s' not found (available: %s)."
-                   % (what, requested, ", ".join(sorted(present)) or "none"))
+            eprint("Warning: requested %s '%s' not found%s (available: %s)."
+                   % (what, requested, where, ", ".join(sorted(present)) or "none"))
         return requested
     if len(present) == 1:
         return next(iter(present))
     if len(present) == 0:
         return None
-    sys.exit("Multiple %s values found: %s. Re-run with --%s to choose one."
-             % (what, ", ".join(sorted(present)), what.replace("_", "-")))
+    sys.exit("Multiple %s values found%s: %s. Re-run with --%s to choose one."
+             % (what, where, ", ".join(sorted(present)), what.replace("_", "-")))
 
 
-def detect_mappers(file_index, samples, host_mapper, virus_mapper):
-    """Scan all sample files to determine the host/virus mapper to use."""
-    hosts, viruses = set(), set()
-    for lib in samples:
-        for name, _ in files_for_sample(file_index, lib):
-            # Host mapper: the token before ".hg38." is the genuine host aligner in
-            # every stage's file names.
-            m = _HOST_RE.match(name)
-            if m:
-                hosts.add(m.group("host"))
-            # Virus mapper: only trust genuine virus-alignment outputs.
-            if name.endswith(_VIRUS_OUTPUT_SUFFIXES):
-                mv = _VIRUS_RE.match(name)
-                if mv:
-                    viruses.add(mv.group("virus"))
-    host = _select_token(None, hosts, host_mapper, "host_mapper")
-    virus = _select_token(None, viruses, virus_mapper, "virus_mapper")
-    return host, virus
+def detect_host(parsed, mappers, host_mapper=None, host_ref=None):
+    """Return (host_mapper, host_ref) from the featureCounts file names.
+
+    The pair is auto-selected when exactly one is consistent with the given
+    flags; with several, exit and ask for --host-mapper / --host-ref.
+    """
+    pairs = set()
+    for files in parsed.values():
+        for pf in files:
+            if pf.kind.startswith("fc_"):
+                stage = host_stage(pf.tokens, mappers)
+                if stage is not None:
+                    pairs.add(stage)
+    cands = {p for p in pairs
+             if (host_mapper is None or p[0] == host_mapper)
+             and (host_ref is None or p[1] == host_ref)}
+    if len(cands) == 1:
+        return next(iter(cands))
+    if len(cands) > 1:
+        sys.exit("Multiple host alignments found in featureCounts file names: %s.\n"
+                 "Re-run with --host-mapper and/or --host-ref to choose one."
+                 % ", ".join("%s.%s" % p for p in sorted(cands)))
+    if (host_mapper or host_ref) and pairs:
+        eprint("Warning: requested host %s.%s not found in featureCounts file "
+               "names (available: %s)."
+               % (host_mapper or "*", host_ref or "*",
+                  ", ".join("%s.%s" % p for p in sorted(pairs))))
+    return host_mapper, host_ref
+
+
+def detect_chains(parsed, refs, mappers, host, virus_mapper=None):
+    """Find every processing chain that produced virus outputs for refs.
+
+    Returns an OrderedDict chain_key -> {"virus_mapper", "samples"} with the
+    host-only chain first. When no virus output exists at all, a single empty
+    chain is returned so host and Kraken2 tables are still collected.
+    """
+    found = {}
+    for lib, files in parsed.items():
+        for pf in files:
+            if pf.kind not in VIRUS_KINDS:
+                continue
+            for ref in refs:
+                hit = virus_hit(pf, ref, host, mappers)
+                if hit is None:
+                    continue
+                info = found.setdefault(hit[1], {"mappers": set(), "samples": set()})
+                info["mappers"].add(hit[0])
+                info["samples"].add(lib)
+    if not found:
+        return OrderedDict([((), {"tag": "host_only", "virus_mapper": virus_mapper,
+                                  "samples": set(parsed)})])
+    tags = chain_tags(sorted(found, key=lambda k: (len(k), k)))
+    chains = OrderedDict()
+    for key, tag in tags.items():
+        info = found[key]
+        context = ("in chain '%s'" % tag) if len(tags) > 1 else ""
+        chains[key] = {
+            "tag": tag,
+            "virus_mapper": _select_token(info["mappers"], virus_mapper,
+                                          "virus_mapper", context),
+            "samples": info["samples"],
+        }
+    return chains
 
 
 # ---------------------------------------------------------------------------
@@ -327,64 +588,104 @@ def parse_viraquant(path):
 
 
 # ---------------------------------------------------------------------------
-# File locators (apply mapper / ref filters)
+# File locators (apply host / chain / mapper / ref filters)
 # ---------------------------------------------------------------------------
 
-def find_host_file(sample_files, host_mapper, suffix):
-    """featureCounts file: <lib>.<host>.hg38.featureCounts.*.<suffix>."""
+def _pick(cands, what, lib, sel=None, strict=True):
+    """Choose one file from candidates (ParsedFile list).
+
+    Copies with the same basename (e.g. the same run copied to two folders) give
+    a warning and the first is used. Different names for one table mean the
+    filters could not tell result sets apart: exit (strict) or warn and use the
+    first by name.
+    """
+    if not cands:
+        return None
+    cands = sorted(cands, key=lambda pf: (pf.name, pf.path))
+    names = sorted({pf.name for pf in cands})
+    label = _label(sel)
+    if len(names) > 1:
+        msg = ("%smultiple %s files for sample %s:\n  %s"
+               % (label, what, lib, "\n  ".join(names)))
+        if strict:
+            sys.exit("Error: " + msg + "\nRestrict the collection with --host-mapper, "
+                     "--host-ref, --virus-mapper or --chains.")
+        eprint("Warning: %s\nUsing %s" % (msg, names[0]))
+    elif len(cands) > 1:
+        eprint("Warning: %s%s found in %d places for sample %s; using %s"
+               % (label, names[0], len(cands), lib, cands[0].path))
+    return cands[0].path
+
+
+def _label(sel):
+    return ("[%s] " % sel.tag) if (sel is not None and sel.tag) else ""
+
+
+def find_host_file(sample_files, sel, count_kind, lib=""):
+    """featureCounts file: <lib>.<...>.<host_mapper>.<host_ref>.featureCounts.*.<count_kind>.tsv."""
     cands = []
-    for name, path in sample_files:
-        if not name.endswith(suffix):
+    for pf in sample_files:
+        if pf.kind != "fc_" + count_kind:
             continue
-        if host_mapper and (".%s.hg38." % host_mapper) not in name:
+        stage = host_stage(pf.tokens, sel.mappers)
+        if stage is None:
             continue
-        cands.append((name, path))
-    return cands[0][1] if cands else None
+        if sel.host_mapper is not None and stage[0] != sel.host_mapper:
+            continue
+        if sel.host_ref is not None and stage[1] != sel.host_ref:
+            continue
+        cands.append(pf)
+    return _pick(cands, "featureCounts %s" % count_kind, lib, strict=False)
 
 
-def find_kraken_file(sample_files, host_mapper):
+def find_kraken_file(sample_files, sel, lib=""):
+    """Kraken2 report of the chain, or the closest one upstream in its lineage.
+
+    Kraken2 may run before a later removal step (e.g. right after host removal,
+    before vero removal); such a report belongs to every chain it is a prefix of,
+    and the longest (closest) matching prefix wins.
+    """
+    best, cands = -1, []
+    for pf in sample_files:
+        if pf.kind != "kraken":
+            continue
+        key = chain_key(parse_chain(pf.tokens, sel.mappers),
+                        sel.host_mapper, sel.host_ref)
+        if key is None or tuple(sel.chain[:len(key)]) != key:
+            continue
+        if len(key) > best:
+            best, cands = len(key), [pf]
+        elif len(key) == best:
+            cands.append(pf)
+    return _pick(cands, "Kraken2 report", lib, sel)
+
+
+def find_virus_file(sample_files, sel, ref, kind, lib=""):
+    """Locate a read_count / ViraQuant file of the chain for a virus reference."""
     cands = []
-    for name, path in sample_files:
-        if not name.endswith(".Kraken2_viral.report"):
+    for pf in sample_files:
+        if pf.kind != kind:
             continue
-        if host_mapper and (".%s.hg38." % host_mapper) not in name:
+        hit = virus_hit(pf, ref, (sel.host_mapper, sel.host_ref), sel.mappers)
+        if hit is None or hit[1] != sel.chain:
             continue
-        cands.append(path)
-    return cands[0] if cands else None
-
-
-def find_virus_file(sample_files, host_mapper, virus_mapper, ref, suffix,
-                    exclude=None):
-    """Locate a read_count/ViraQuant file for a given virus mapper + reference."""
-    cands = []
-    for name, path in sample_files:
-        if not (name.endswith(suffix) or name.endswith(suffix + ".gz")):
+        if sel.virus_mapper is not None and hit[0] != sel.virus_mapper:
             continue
-        if exclude and exclude in name:
-            continue
-        if host_mapper and (".%s.hg38." % host_mapper) not in name:
-            continue
-        if virus_mapper and ref:
-            if (".%s.%s." % (virus_mapper, ref)) not in name:
-                continue
-        elif ref and (".%s." % ref) not in name:
-            continue
-        cands.append(path)
-    return cands[0] if cands else None
+        cands.append(pf)
+    return _pick(cands, "%s %s" % (ref, kind), lib, sel)
 
 
 # ---------------------------------------------------------------------------
 # Table builders
 # ---------------------------------------------------------------------------
 
-def build_sample_info(samples, file_index):
+def build_sample_info(samples, by_sample):
     rows = []
     for lib in progress(samples, "fastp QC / sample info"):
         title = samples[lib]
-        sample_files = files_for_sample(file_index, lib)
         before = after = passed = None
         fastp_path = None
-        for name, path in sample_files:
+        for name, path in by_sample.get(lib, []):
             if name.endswith(".fastp.json"):
                 fastp_path = path
                 break
@@ -407,15 +708,11 @@ def build_sample_info(samples, file_index):
     return pd.DataFrame(rows)
 
 
-def build_featurecounts_matrix(samples, file_index, host_mapper, count_kind):
+def build_featurecounts_matrix(samples, parsed, sel, count_kind):
     """count_kind is 'count_reads' or 'count_pairs'."""
     series_by_sample = OrderedDict()
     for lib in progress(samples, "host featureCounts (%s)" % count_kind):
-        sample_files = files_for_sample(file_index, lib)
-        path = find_host_file(sample_files, host_mapper,
-                              "%s.tsv.gz" % count_kind)
-        if path is None:
-            path = find_host_file(sample_files, host_mapper, "%s.tsv" % count_kind)
+        path = find_host_file(parsed.get(lib, []), sel, count_kind, lib)
         if path is None:
             eprint("Warning: no featureCounts %s for sample %s" % (count_kind, lib))
             continue
@@ -472,14 +769,13 @@ def build_gene_family_matrix(matrix, families):
     return family_matrix, empty_families
 
 
-def build_kraken2_matrix(samples, file_index, host_mapper):
+def build_kraken2_matrix(samples, parsed, sel):
     per_sample = OrderedDict()
     identity = OrderedDict()  # (taxid, rank) -> name
-    for lib in progress(samples, "Kraken2"):
-        sample_files = files_for_sample(file_index, lib)
-        path = find_kraken_file(sample_files, host_mapper)
+    for lib in progress(samples, "%sKraken2" % _label(sel)):
+        path = find_kraken_file(parsed.get(lib, []), sel, lib)
         if path is None:
-            eprint("Warning: no Kraken2 report for sample %s" % lib)
+            eprint("Warning: %sno Kraken2 report for sample %s" % (_label(sel), lib))
             continue
         df = parse_kraken2(path)
         if df.empty:
@@ -506,19 +802,16 @@ def build_kraken2_matrix(samples, file_index, host_mapper):
     return pd.DataFrame(rows)
 
 
-def build_taxonomy_matrices(samples, file_index, host_mapper, virus_mapper, ref,
-                            taxonomy_map=None):
+def build_taxonomy_matrices(samples, parsed, sel, ref, taxonomy_map=None):
     """Return (reads_matrix, pairs_matrix, summary_df) for a virus reference."""
     reads_by_sample = OrderedDict()
     pairs_by_sample = OrderedDict()
     summary_rows = []
     found = False
-    for lib in progress(samples, "TaxonomyClassifier [%s]" % ref):
-        sample_files = files_for_sample(file_index, lib)
-        path = find_virus_file(sample_files, host_mapper, virus_mapper, ref,
-                               ".unsorted.read_count.txt")
+    for lib in progress(samples, "%sTaxonomyClassifier [%s]" % (_label(sel), ref)):
+        path = find_virus_file(parsed.get(lib, []), sel, ref, "read_count", lib)
         if path is None:
-            eprint("Warning: no %s read_count for sample %s" % (ref, lib))
+            eprint("Warning: %sno %s read_count for sample %s" % (_label(sel), ref, lib))
             continue
         found = True
         summary, reads, pairs = parse_read_count(path)
@@ -546,33 +839,25 @@ def build_taxonomy_matrices(samples, file_index, host_mapper, virus_mapper, ref,
         pd.DataFrame(summary_rows)
 
 
-def build_viraquant_long(samples, file_index, host_mapper, virus_mapper, ref,
-                         scan):
+def build_viraquant_long(samples, parsed, sel, ref, scan):
     """Concatenate ViraQuant TSVs across samples into a long table.
 
     For scan mode, prefer the ncbitaxon-grouped output
     (.ViraQuant_scan_ncbitaxon.tsv) and fall back to the raw scan TSV
     (.ViraQuant_scan.tsv) when a sample has no grouped file.
     """
-    if scan:
-        suffixes = [".ViraQuant_scan_ncbitaxon.tsv", ".ViraQuant_scan.tsv"]
-        exclude = None
-    else:
-        suffixes = [".ViraQuant.tsv"]
-        exclude = "_scan"
-    desc = "ViraQuant %s [%s]" % ("scan" if scan else "targeted", ref)
+    kinds = ["vq_scan_ncbitaxon", "vq_scan"] if scan else ["vq_targeted"]
+    desc = "%sViraQuant %s [%s]" % (_label(sel), "scan" if scan else "targeted", ref)
     frames = []
     for lib in progress(samples, desc):
-        sample_files = files_for_sample(file_index, lib)
         path = None
-        for suffix in suffixes:
-            path = find_virus_file(sample_files, host_mapper, virus_mapper, ref,
-                                   suffix, exclude=exclude)
+        for kind in kinds:
+            path = find_virus_file(parsed.get(lib, []), sel, ref, kind, lib)
             if path is not None:
                 break
         if path is None:
-            eprint("Warning: no %s ViraQuant%s for sample %s"
-                   % (ref, "_scan" if scan else "", lib))
+            eprint("Warning: %sno %s ViraQuant%s for sample %s"
+                   % (_label(sel), ref, "_scan" if scan else "", lib))
             continue
         df = parse_viraquant(path)
         df.insert(0, "sample_id", lib)
@@ -1462,9 +1747,22 @@ def main():
                         help="Comma-separated targeted virus-list reference names, "
                              "e.g. 'virus_panel,respiratory_panel'.")
     parser.add_argument("--host-mapper", dest="host_mapper", default=None,
-                        help="Host aligner name (auto-detected if only one present).")
+                        help="Host aligner name, e.g. 'bwa_mem' (auto-detected from the "
+                             "featureCounts file names if only one is present).")
+    parser.add_argument("--host-ref", dest="host_ref", default=None,
+                        help="Host reference name as used in the file names, e.g. "
+                             "'hg38', 'GRCh38' or 'mChlSab1.0.hap1' (auto-detected from "
+                             "the featureCounts file names if only one is present).")
     parser.add_argument("--virus-mapper", dest="virus_mapper", default=None,
-                        help="Virus aligner name (auto-detected if only one present).")
+                        help="Virus aligner name (auto-detected per chain if only one "
+                             "is present).")
+    parser.add_argument("--chains", dest="chains", default=None,
+                        help="Comma-separated chain tags to collect, e.g. 'rm_vero' or "
+                             "'host_only,rm_vero' (default: all). A chain is one result "
+                             "set: host removal only ('host_only'), or with extra "
+                             "removal steps in between ('rm_<target>', e.g. 'rm_vero' "
+                             "for remove_read_pairs_mapped_to(\"vero\")). The tags "
+                             "found are printed at start-up.")
     parser.add_argument("--taxonomy-map", dest="taxonomy_map", default=None,
                         help="Optional ncbi_taxonomy_map.json[.gz] to add readable "
                              "names to the scan-ref taxonomy tables.")
@@ -1501,19 +1799,41 @@ def main():
         sys.exit("No files found under %s" % results_dir)
     eprint("Indexed %d files." % len(file_index))
 
-    host_mapper, virus_mapper = detect_mappers(
-        file_index, samples, o.host_mapper, o.virus_mapper)
-    eprint("Samples: %d | host_mapper=%s | virus_mapper=%s | scan_ref=%s | targeted=%s"
-           % (len(samples), host_mapper, virus_mapper, o.scan_ref,
+    by_sample = group_files_by_sample(file_index, samples)
+    parsed = parse_sample_files(by_sample)
+    mappers = KNOWN_MAPPERS | {m for m in (o.host_mapper, o.virus_mapper) if m}
+    host = detect_host(parsed, mappers, o.host_mapper, o.host_ref)
+    chains = detect_chains(parsed, [o.scan_ref] + targeted_refs, mappers, host,
+                           o.virus_mapper)
+    eprint("Samples: %d | host=%s.%s | scan_ref=%s | targeted=%s"
+           % (len(samples), host[0] or "*", host[1] or "*", o.scan_ref,
               ",".join(targeted_refs)))
+    eprint("Chains found:")
+    for key, info in chains.items():
+        eprint("  [%s] %d sample(s), virus_mapper=%s: %s"
+               % (info["tag"], len(info["samples"]), info["virus_mapper"],
+                  describe_chain(key)))
+    if o.chains:
+        wanted = [t.strip() for t in o.chains.split(",") if t.strip()]
+        available = [info["tag"] for info in chains.values()]
+        unknown = [t for t in wanted if t not in available]
+        if unknown:
+            sys.exit("Unknown --chains tag(s): %s (available: %s)"
+                     % (", ".join(unknown), ", ".join(available)))
+        chains = OrderedDict((k, v) for k, v in chains.items() if v["tag"] in wanted)
+    multi = len(chains) > 1
+    if multi:
+        eprint("Several result sets found: writing one sub-folder per chain under %s"
+               % o.out_dir)
     eprint("Collecting results ...")
 
     tax_map = load_taxonomy_map(o.taxonomy_map)
-    tables = []
+    shared = []
+    host_sel = Selection(host[0], host[1], None, (), "", mappers)
 
     # 1. sample info / fastp QC
-    sample_info = build_sample_info(samples, file_index)
-    tables.append(("sample_info", sample_info))
+    sample_info = build_sample_info(samples, by_sample)
+    shared.append(("sample_info", sample_info))
     # Per-sample filtered (fastp after-filtering) total reads for CPM normalization.
     filtered_reads = {
         str(lib): (int(reads) if pd.notna(reads) else None)
@@ -1529,7 +1849,7 @@ def main():
     # 2. host gene quantification. The complete matrices are always written; when
     # --host-genes is given, additional subset (and, for a YAML family file, family-
     # summed) matrices are written alongside them, named with the list file's base
-    # name as a prefix.
+    # name as a prefix. Shared by every chain.
     spec = load_host_gene_spec(o.host_genes)
     genes, families = spec if spec else (None, None)
     gene_prefix = host_gene_prefix(o.host_genes) if genes is not None else None
@@ -1537,10 +1857,10 @@ def main():
     for kind, label, fam_label in (
             ("count_reads", "host_featureCounts_by_reads", "host_gene_family_by_reads"),
             ("count_pairs", "host_featureCounts_by_pairs", "host_gene_family_by_pairs")):
-        mat = build_featurecounts_matrix(samples, file_index, host_mapper, kind)
+        mat = build_featurecounts_matrix(samples, parsed, host_sel, kind)
         if mat is None:
             continue
-        tables.append((label, mat))  # complete matrix, always
+        shared.append((label, mat))  # complete matrix, always
         if genes is None:
             continue
         sub, missing = subset_featurecounts_matrix(mat, genes)
@@ -1549,7 +1869,7 @@ def main():
                    "featureCounts data: %s"
                    % (len(missing), len(genes), ", ".join(missing)))
             warned_missing = True
-        tables.append(("%s_%s" % (gene_prefix, label), sub))
+        shared.append(("%s_%s" % (gene_prefix, label), sub))
         if families is not None:
             fam, empty = build_gene_family_matrix(mat, families)
             if empty and not warned_empty:
@@ -1557,54 +1877,74 @@ def main():
                        % (len(empty), ", ".join(empty)))
                 warned_empty = True
             if not fam.empty:
-                tables.append(("%s_%s" % (gene_prefix, fam_label), fam))
+                shared.append(("%s_%s" % (gene_prefix, fam_label), fam))
+
+    # 3-7. virus-side tables, once per chain
+    for key, info in chains.items():
+        sel = Selection(host[0], host[1], info["virus_mapper"], key,
+                        info["tag"] if multi else "", mappers)
+        if multi:
+            chain_samples = OrderedDict(
+                (lib, samples[lib]) for lib in samples if lib in info["samples"])
+            skipped = [lib for lib in samples if lib not in info["samples"]]
+            if skipped:
+                eprint("[%s] %d sample(s) have no results in this chain: %s"
+                       % (info["tag"], len(skipped), ", ".join(skipped)))
+            out_dir = os.path.join(o.out_dir, info["tag"])
+        else:
+            chain_samples, out_dir = samples, o.out_dir
+        collect_chain(sel, chain_samples, parsed, shared, o.scan_ref, targeted_refs,
+                      tax_map, top_ns, out_dir, filtered_reads, sample_titles)
+    eprint("Done.")
+
+
+def collect_chain(sel, samples, parsed, shared, scan_ref, targeted_refs, tax_map,
+                  top_ns, out_dir, filtered_reads, sample_titles):
+    """Build and write the virus-side tables of one chain, next to the shared ones."""
+    tables = list(shared)
 
     # 3. Kraken2
-    kraken = build_kraken2_matrix(samples, file_index, host_mapper)
+    kraken = build_kraken2_matrix(samples, parsed, sel)
     if kraken is not None:
         tables.append(("kraken2", kraken))
 
     # 4. scan TaxonomyClassifier direct counts (RVDB scan reference)
     reads_m, pairs_m, summary = build_taxonomy_matrices(
-        samples, file_index, host_mapper, virus_mapper, o.scan_ref, tax_map)
+        samples, parsed, sel, scan_ref, tax_map)
     if reads_m is not None:
         tables.append(("scan_taxonomy_reads", reads_m))
         tables.append(("scan_taxonomy_pairs", pairs_m))
         tables.append(("scan_summary", summary))
 
     # 5. ViraQuant scan coverage (long)
-    scan_cov = build_viraquant_long(
-        samples, file_index, host_mapper, virus_mapper, o.scan_ref, scan=True)
+    scan_cov = build_viraquant_long(samples, parsed, sel, scan_ref, scan=True)
     if scan_cov is not None:
         tables.append(("viraquant_scan_coverage", scan_cov))
 
     # 6 + 7. per targeted reference
     targeted_long = OrderedDict()
     for ref in targeted_refs:
-        reads_m, pairs_m, summary = build_taxonomy_matrices(
-            samples, file_index, host_mapper, virus_mapper, ref)
+        reads_m, pairs_m, summary = build_taxonomy_matrices(samples, parsed, sel, ref)
         if reads_m is not None:
             tables.append(("targeted_taxonomy_reads_%s" % ref, reads_m))
             tables.append(("targeted_taxonomy_pairs_%s" % ref, pairs_m))
             tables.append(("targeted_summary_%s" % ref, summary))
-        cov = build_viraquant_long(
-            samples, file_index, host_mapper, virus_mapper, ref, scan=False)
+        cov = build_viraquant_long(samples, parsed, sel, ref, scan=False)
         if cov is not None:
             tables.append(("viraquant_targeted_coverage_%s" % ref, cov))
             targeted_long[ref] = cov
 
     if len(tables) <= 1:
-        eprint("Warning: only sample_info was assembled; check --results-dir, "
-               "mapper names, and reference names.")
+        eprint("Warning: %sonly sample_info was assembled; check --results-dir, "
+               "mapper names, and reference names." % _label(sel))
 
-    eprint("Writing %d tables to %s ..." % (len(tables), o.out_dir))
-    write_outputs(tables, o.out_dir)
-    write_cpm_workbook(tables, o.out_dir, filtered_reads)
-    build_interactive_html(targeted_long, o.out_dir, filtered_reads=filtered_reads,
+    eprint("%sWriting %d tables to %s ..." % (_label(sel), len(tables), out_dir))
+    write_outputs(tables, out_dir)
+    write_cpm_workbook(tables, out_dir, filtered_reads)
+    build_interactive_html(targeted_long, out_dir, filtered_reads=filtered_reads,
                            sample_titles=sample_titles)
-    build_scan_topn_html(scan_cov, o.out_dir, top_ns, filtered_reads=filtered_reads,
+    build_scan_topn_html(scan_cov, out_dir, top_ns, filtered_reads=filtered_reads,
                          sample_titles=sample_titles)
-    eprint("Done.")
 
 
 if __name__ == "__main__":

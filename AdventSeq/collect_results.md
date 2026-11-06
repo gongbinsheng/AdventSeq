@@ -40,8 +40,14 @@ collect-results \
 - `--targeted-refs` — comma-separated list of targeted virus-list reference names
   (required), e.g. `virus_panel,respiratory_panel`. One set of targeted tables and one selectable
   reference in the interactive HTML is produced per name.
-- `--host-mapper` / `--virus-mapper` — aligner names. Auto-detected when exactly one
-  is present in the run; required only when the output mixes multiple mappers.
+- `--host-mapper` / `--host-ref` — host aligner (e.g. `bwa_mem`) and host reference
+  name as used in the file names (e.g. `hg38`, `GRCh38`, `mChlSab1.0.hap1`). Both are
+  auto-detected from the featureCounts file names when exactly one pair is present;
+  required only when the output mixes several host alignments.
+- `--virus-mapper` — virus aligner. Auto-detected per chain when exactly one is
+  present; required only when one chain mixes several virus mappers.
+- `--chains` — comma-separated chain tags to collect (default: all), e.g. `rm_vero`.
+  See [Processing chains](#processing-chains); the tags found are printed at start-up.
 - `--taxonomy-map` — optional `ncbi_taxonomy_map.json[.gz]`; adds a readable `name`
   column to the scan-ref taxonomy tables (which are keyed by NCBI taxon id).
 - `--host-genes` — optional host-gene panel. The **complete** `host_featureCounts_*`
@@ -70,8 +76,59 @@ Discovery is robust to both output layouts:
 - flattened per-type — `<results_dir>/<type>/<library_ID>.*`
 
 Files are matched by basename prefix `<library_ID>.` (the trailing dot prevents
-`1_S1` from matching `10_S10`). The host/virus aligner and the viral reference are
-parsed from the embedded `ref_genome` tokens in the file names.
+`1_S1` from matching `10_S10`; the longest matching ID wins, so library IDs may
+contain dots).
+
+### File-name parsing
+
+Only two parts of a file name are fixed: the leading `<library_ID>.` and the trailing
+file-type suffix (`.unsorted.read_count.txt`, `.ViraQuant.tsv`, `.ViraQuant_scan.tsv`,
+`.ViraQuant_scan_ncbitaxon.tsv`, `.Kraken2_viral.report`,
+`.featureCounts.*.count_{reads,pairs}.tsv[.gz]`). The middle is the processing chain
+and is parsed, not assumed:
+
+```text
+<library_ID> . bwa_mem.GRCh38 . unmapped2host . bwa_mem.mChlSab1.0.hap1 . unmapped2vero . bowtie2.RVDBv29 . ViraQuant_scan.tsv
+               └ host stage ┘                   └─── extra removal ───┘                   └ virus stage ┘
+```
+
+- every alignment stage is `<mapper>.<ref_genome>`, where `<mapper>` is one of the
+  pipeline's aligners (`bwa_mem`, `bowtie2`, `minimap2`, `HISAT2`, `STAR`) and
+  `<ref_genome>` may contain dots;
+- `remove_read_pairs_mapped_to(<target>)` adds `unmapped2<target>`, and `filter_BAM`
+  may add `filtered` after a reference;
+- the **host stage** is read from the featureCounts file names
+  (`…<mapper>.<ref>.featureCounts.…`), so any host species/release works;
+- the **virus stage** is the last `<mapper>.<ref>` where `<ref>` is the `--scan-ref` or
+  a `--targeted-refs` name. A reference must directly follow a mapper, so `hap1` never
+  matches the end of `mChlSab1.0.hap1`.
+
+### Processing chains
+
+A **chain** is one result set: the removal steps between the host stage and the
+virus stage. Chains get readable tags:
+
+| Chain | Tag |
+|---|---|
+| host removal → virus mapping | `host_only` |
+| host removal → `remove_read_pairs_mapped_to("vero")` → virus mapping | `rm_vero` |
+| two extra removal steps | `rm_vero+myco` |
+
+If two chains share target labels but use different references, the reference is
+appended (`rm_vero-mChlSab1.0.hap1`).
+
+- **One chain** (the usual case): output is written directly into `--out-dir`.
+- **Several chains** (e.g. some samples or runs with host removal only, others with an
+  extra vero removal step): each chain gets its own complete sub-folder
+  `<out-dir>/<tag>/`, with the same table, workbook and HTML names. `sample_info` and
+  the host featureCounts tables are shared and written into every sub-folder. A
+  chain's virus tables include only the samples that have that result set. Kraken2
+  uses the report of the chain itself, or the closest one upstream (e.g. a report run
+  right after host removal also serves `rm_vero`).
+
+Use `--chains` to collect only some chains. If one sample still has several different
+files for one table in the same chain, the run stops and lists them, instead of
+picking one silently.
 
 ## Outputs
 
